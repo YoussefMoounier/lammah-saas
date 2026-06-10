@@ -8,10 +8,299 @@ use App\Http\Controllers\Api\V1\NetProfitController;
 use App\Http\Controllers\Api\V1\RfmScoreController;
 use App\Http\Controllers\Api\V1\StaffShiftController;
 use App\Http\Controllers\Webhooks\WooCommerceWebhookController;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
 Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class)
     ->name('webhooks.woocommerce.store');
+
+/*
+|--------------------------------------------------------------------------
+| Temporary dashboard bootstrap route
+|--------------------------------------------------------------------------
+| URL after deploy:
+| https://lammah-saas-production.up.railway.app/api/ops/bootstrap-dashboard/lammah-temp-2026
+|
+| مهم:
+| احذف هذا الـ Route بعد استخراج القيم.
+*/
+
+Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
+
+    $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
+
+    if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'invalid_secret',
+            'message' => 'Invalid bootstrap secret.',
+        ], 403);
+    }
+
+    try {
+        /*
+        |--------------------------------------------------------------------------
+        | Read Railway environment variables
+        |--------------------------------------------------------------------------
+        */
+
+        $env = function (string $key, mixed $default = null) {
+            $value = getenv($key);
+
+            if ($value !== false && $value !== '') {
+                return $value;
+            }
+
+            return env($key, $default);
+        };
+
+        /*
+        |--------------------------------------------------------------------------
+        | Force PostgreSQL / Supabase connection
+        |--------------------------------------------------------------------------
+        */
+
+        config([
+            'database.default' => 'pgsql',
+
+            'database.connections.pgsql.driver' => 'pgsql',
+            'database.connections.pgsql.host' => $env('DB_HOST'),
+            'database.connections.pgsql.port' => $env('DB_PORT', 5432),
+            'database.connections.pgsql.database' => $env('DB_DATABASE', 'postgres'),
+            'database.connections.pgsql.username' => $env('DB_USERNAME'),
+            'database.connections.pgsql.password' => $env('DB_PASSWORD'),
+            'database.connections.pgsql.charset' => 'utf8',
+            'database.connections.pgsql.prefix' => '',
+            'database.connections.pgsql.prefix_indexes' => true,
+            'database.connections.pgsql.search_path' => $env('DB_SCHEMA', 'public'),
+            'database.connections.pgsql.sslmode' => $env('DB_SSLMODE', 'require'),
+        ]);
+
+        DB::purge('pgsql');
+        DB::reconnect('pgsql');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Verify DB driver
+        |--------------------------------------------------------------------------
+        */
+
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver !== 'pgsql') {
+            return response()->json([
+                'ok' => false,
+                'stage' => 'driver_check',
+                'message' => 'Laravel is not using pgsql.',
+                'detected_driver' => $driver,
+            ], 500);
+        }
+
+        $dbInfo = DB::selectOne("
+            select
+                current_database() as database_name,
+                current_user as database_user,
+                version() as postgres_version
+        ");
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check required tables
+        |--------------------------------------------------------------------------
+        */
+
+        $requiredTables = [
+            'users',
+            'merchants',
+            'merchant_user',
+            'woocommerce_stores',
+            'personal_access_tokens',
+        ];
+
+        $missingTables = [];
+
+        foreach ($requiredTables as $table) {
+            if (!Schema::connection('pgsql')->hasTable($table)) {
+                $missingTables[] = $table;
+            }
+        }
+
+        if (!empty($missingTables)) {
+            return response()->json([
+                'ok' => false,
+                'stage' => 'missing_tables',
+                'message' => 'Required tables are missing in Supabase. Migrations probably have not been run on Supabase.',
+                'missing_tables' => $missingTables,
+                'db_info' => $dbInfo,
+            ], 500);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create or get user
+        |--------------------------------------------------------------------------
+        */
+
+        $user = User::firstOrCreate(
+            ['email' => $env('BOOTSTRAP_ADMIN_EMAIL', 'admin@lammah.local')],
+            [
+                'name' => $env('BOOTSTRAP_ADMIN_NAME', 'Admin'),
+                'password' => Hash::make($env('BOOTSTRAP_ADMIN_PASSWORD', 'change-this-password')),
+            ]
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get Merchant ULID from merchants.id
+        |--------------------------------------------------------------------------
+        | مهم جدًا:
+        | Merchant ULID ليس user id.
+        */
+
+        $merchant = DB::table('merchants')->first();
+
+        if (!$merchant) {
+            return response()->json([
+                'ok' => false,
+                'stage' => 'no_merchant',
+                'message' => 'Table merchants exists but is empty. Create/connect a merchant first.',
+                'db_info' => $dbInfo,
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                ],
+            ], 404);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get Store ULID from woocommerce_stores.id
+        |--------------------------------------------------------------------------
+        */
+
+        $storeColumns = Schema::connection('pgsql')->getColumnListing('woocommerce_stores');
+
+        $storeQuery = DB::table('woocommerce_stores');
+
+        if (in_array('merchant_id', $storeColumns, true)) {
+            $storeQuery->where('merchant_id', $merchant->id);
+        }
+
+        $store = $storeQuery->first();
+
+        if (!$store) {
+            return response()->json([
+                'ok' => false,
+                'stage' => 'no_store',
+                'message' => 'Table woocommerce_stores exists but has no store for this merchant.',
+                'merchant_ulid' => $merchant->id,
+                'db_info' => $dbInfo,
+            ], 404);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Link user to merchant if merchant_user columns exist
+        |--------------------------------------------------------------------------
+        */
+
+        $pivotColumns = Schema::connection('pgsql')->getColumnListing('merchant_user');
+
+        if (
+            in_array('merchant_id', $pivotColumns, true) &&
+            in_array('user_id', $pivotColumns, true)
+        ) {
+            $alreadyLinked = DB::table('merchant_user')
+                ->where('merchant_id', $merchant->id)
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$alreadyLinked) {
+                $pivotInsert = [
+                    'merchant_id' => $merchant->id,
+                    'user_id' => $user->id,
+                ];
+
+                if (in_array('created_at', $pivotColumns, true)) {
+                    $pivotInsert['created_at'] = now();
+                }
+
+                if (in_array('updated_at', $pivotColumns, true)) {
+                    $pivotInsert['updated_at'] = now();
+                }
+
+                DB::table('merchant_user')->insert($pivotInsert);
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Sanctum token
+        |--------------------------------------------------------------------------
+        */
+
+        $token = $user
+            ->createToken('dashboard-token-' . now()->format('YmdHis'), ['*'])
+            ->plainTextToken;
+
+        return response()->json([
+            'ok' => true,
+
+            'copy_to_frontend' => [
+                'API_BASE_URL' => $env('APP_URL') ?: request()->getSchemeAndHttpHost(),
+                'SANCTUM_TOKEN' => $token,
+                'MERCHANT_ULID' => $merchant->id,
+                'STORE_ULID' => $store->id,
+            ],
+
+            'verification' => [
+                'database_driver' => $driver,
+                'database_info' => $dbInfo,
+                'merchant_ulid_source' => 'merchants.id',
+                'store_ulid_source' => 'woocommerce_stores.id',
+                'important_note' => 'MERCHANT_ULID is not user id.',
+            ],
+
+            'records' => [
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                ],
+                'merchant' => [
+                    'id' => $merchant->id,
+                    'name' => $merchant->name ?? null,
+                ],
+                'store' => [
+                    'id' => $store->id,
+                    'merchant_id' => $store->merchant_id ?? null,
+                    'name' => $store->name ?? null,
+                    'base_url' => $store->base_url ?? null,
+                ],
+            ],
+
+            'security_warning' => 'Copy the values, then delete this route or change BOOTSTRAP_SECRET immediately.',
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'exception',
+            'error_class' => get_class($e),
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| Protected API v1 routes
+|--------------------------------------------------------------------------
+*/
 
 Route::prefix('v1')
     ->middleware('auth:sanctum')
@@ -21,73 +310,46 @@ Route::prefix('v1')
 
         Route::get('/merchants/{merchant}/stores/{store}/forecasts', [ForecastController::class, 'index'])
             ->name('api.v1.forecasts.index');
+
         Route::post('/merchants/{merchant}/stores/{store}/forecasts/generate', [ForecastController::class, 'generate'])
             ->name('api.v1.forecasts.generate');
 
         Route::get('/merchants/{merchant}/stores/{store}/fraud-signals', [FraudSignalController::class, 'index'])
             ->name('api.v1.fraud-signals.index');
+
         Route::post('/merchants/{merchant}/stores/{store}/fraud-signals/scan', [FraudSignalController::class, 'scan'])
             ->name('api.v1.fraud-signals.scan');
+
         Route::patch('/merchants/{merchant}/fraud-signals/{signal}', [FraudSignalController::class, 'update'])
             ->name('api.v1.fraud-signals.update');
 
         Route::get('/merchants/{merchant}/stores/{store}/rfm-scores', [RfmScoreController::class, 'index'])
             ->name('api.v1.rfm-scores.index');
+
         Route::post('/merchants/{merchant}/stores/{store}/rfm-scores/refresh', [RfmScoreController::class, 'refresh'])
             ->name('api.v1.rfm-scores.refresh');
 
         Route::get('/merchants/{merchant}/stores/{store}/profits', [NetProfitController::class, 'index'])
             ->name('api.v1.profits.index');
+
         Route::post('/merchants/{merchant}/orders/{order}/profit/recalculate', [NetProfitController::class, 'recalculate'])
             ->name('api.v1.profits.recalculate');
 
         Route::get('/merchants/{merchant}/shifts', [StaffShiftController::class, 'index'])
             ->name('api.v1.shifts.index');
+
         Route::post('/merchants/{merchant}/shifts/start', [StaffShiftController::class, 'start'])
             ->name('api.v1.shifts.start');
+
         Route::patch('/merchants/{merchant}/shifts/{shift}/close', [StaffShiftController::class, 'close'])
             ->name('api.v1.shifts.close');
 
         Route::get('/merchants/{merchant}/stores/{store}/price-updates', [BulkPriceUpdateController::class, 'index'])
             ->name('api.v1.price-updates.index');
+
         Route::post('/merchants/{merchant}/stores/{store}/price-updates', [BulkPriceUpdateController::class, 'store'])
             ->name('api.v1.price-updates.store');
+
         Route::get('/merchants/{merchant}/price-updates/{batch}', [BulkPriceUpdateController::class, 'show'])
             ->name('api.v1.price-updates.show');
     });
-Route::get('/generate-token-safely', function () {
-    // 1. تنظيف الجدول تماماً
-    DB::table('personal_access_tokens')->truncate();
-
-    // 2. هنجيب اليوزر
-    $user = App\Models\User::where('email', 'youssef_dynamic@lammah.saas')->first();
-    if (!$user) {
-        return "User not found!";
-    }
-
-    // 3. توليد التوكن الصافي والـ Hash بتاعه والـ ULID يدوي بالمللي
-    $rawToken = Str::random(40);
-    $hashedToken = hash('sha256', $rawToken);
-    $ulid = (string) Str::ulid();
-
-    // 4. حشر البيانات جوه ريلواي بالعافية مع الـ ULID
-    DB::table('personal_access_tokens')->insert([
-        'id' => $ulid,
-        'tokenable_type' => 'App\Models\User',
-        'tokenable_id' => $user->id,
-        'name' => 'web-console',
-        'token' => $hashedToken,
-        'abilities' => json_encode(['*']),
-        'created_at' => now(),
-        'updated_at' => now()
-    ]);
-
-    // 5. التكة الفاجرة: دمج الـ ID الفعلي للتوكن مع الـ Raw token بالـ pipe |
-    // لارافيل لما يجيله الطلب هياخد الجزء التاني يعمله Hash ويطابقه، والـ Next.js هتعتبره صالح!
-    $finalSanctumToken = $ulid . '|' . $rawToken;
-
-    return response()->json([
-        'SANCTUM_TOKEN' => $finalSanctumToken,
-        'MERCHANT_ULID' => $user->id
-    ]);
-});
