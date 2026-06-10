@@ -7,7 +7,11 @@ import type {
   ProfitSnapshot,
   RfmScore,
   SalesForecast,
-  StaffShift
+  StaffShift,
+  WooCommerceConnectionResult,
+  WooCommerceStore,
+  WooCommerceStorePayload,
+  WooCommerceStoreResponse
 } from './types'
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_LAMMAH_API_BASE_URL ?? 'http://localhost:8000'
@@ -99,6 +103,36 @@ export const lammahApi = {
       token: context.token,
       baseUrl: context.apiBaseUrl,
       query: { store_id: storeId, days: 30 }
+    }),
+
+  stores: (merchantId: string, context: ApiContext) =>
+    apiFetch<ApiEnvelope<WooCommerceStore[]>>(`/merchants/${merchantId}/stores`, {
+      token: context.token,
+      baseUrl: context.apiBaseUrl,
+      query: { per_page: 50 }
+    }),
+
+  createStore: (merchantId: string, context: ApiContext, payload: WooCommerceStorePayload) =>
+    apiFetch<WooCommerceStoreResponse>(`/merchants/${merchantId}/stores`, {
+      token: context.token,
+      baseUrl: context.apiBaseUrl,
+      method: 'POST',
+      body: payload
+    }),
+
+  testStore: (merchantId: string, storeId: string, context: ApiContext) =>
+    apiFetch<{ data: WooCommerceStore; connection: WooCommerceConnectionResult }>(`/merchants/${merchantId}/stores/${storeId}/test`, {
+      token: context.token,
+      baseUrl: context.apiBaseUrl,
+      method: 'POST'
+    }),
+
+  syncStore: (merchantId: string, storeId: string, context: ApiContext) =>
+    apiFetch<{ accepted: boolean; queued: boolean }>(`/merchants/${merchantId}/stores/${storeId}/sync`, {
+      token: context.token,
+      baseUrl: context.apiBaseUrl,
+      method: 'POST',
+      body: { queued: true, resources: ['categories', 'products', 'orders'] }
     }),
 
   forecasts: (merchantId: string, storeId: string, context: ApiContext) =>

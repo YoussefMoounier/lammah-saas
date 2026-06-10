@@ -1,17 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import {
-  Activity,
-  AlertTriangle,
-  ChartNoAxesCombined,
-  CircleDollarSign,
-  RefreshCcw,
-  ShieldAlert,
-  Store,
-  Tags,
-  Users
-} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Activity, AlertTriangle, ChartNoAxesCombined, CircleDollarSign, PlugZap, RefreshCcw, ShieldAlert, Store, Tags, Users } from 'lucide-react'
 import { lammahApi, readConnectionSettings, saveConnectionSettings } from '@/lib/api'
 import type {
   ConnectionSettings,
@@ -21,178 +11,201 @@ import type {
   ProfitSnapshot,
   RfmScore,
   SalesForecast,
-  StaffShift
+  StaffShift,
+  WooCommerceConnectionResult,
+  WooCommerceStore,
+  WooCommerceStorePayload
 } from '@/lib/types'
 import { AppShell, type ConsoleSection } from '@/components/layout/app-shell'
 import { MetricTile } from './metric-tile'
 import { DataPanel } from './data-panel'
-import { ActionPanel } from './action-panel'
 
-const demoSummary: DashboardSummary = {
+const emptySummary: DashboardSummary = {
   period: { days: 30, starts_at: '', ends_at: '' },
-  gross_revenue: 148920,
-  net_profit: 93440,
-  open_fraud_signals: 7,
-  high_churn_customers: 18,
-  active_shifts: 3,
-  queued_price_updates: 1
+  gross_revenue: 0,
+  net_profit: 0,
+  open_fraud_signals: 0,
+  high_churn_customers: 0,
+  active_shifts: 0,
+  queued_price_updates: 0
 }
 
-const demoForecasts: SalesForecast[] = [
-  {
-    id: 'f1',
-    forecast_month: '2026-07-01',
-    training_months: 6,
-    gross_revenue_forecast: 164500,
-    net_profit_forecast: 101700,
-    order_count_forecast: 892,
-    confidence_low: 150000,
-    confidence_high: 178000,
-    generated_at: new Date().toISOString()
-  }
-]
-
-const demoFraud: FraudSignal[] = [
-  {
-    id: 'r1',
-    risk_score: 88,
-    severity: 'critical',
-    signal_type: 'trial_abuse_cluster',
-    status: 'open',
-    evidence: { ip_order_count_24h: 11 },
-    last_seen_at: new Date().toISOString()
-  },
-  {
-    id: 'r2',
-    risk_score: 64,
-    severity: 'high',
-    signal_type: 'email_pattern_anomaly',
-    status: 'open',
-    evidence: { suspicious_email_pattern: 'test+231' },
-    last_seen_at: new Date().toISOString()
-  }
-]
-
-const demoRfm: RfmScore[] = [
-  { id: 'c1', customer_id: 'cust_01', recency_days: 4, frequency_orders: 12, monetary_value: 1840, segment: 'vip', churn_probability: 0.11, subscription_expires_at: null },
-  { id: 'c2', customer_id: 'cust_02', recency_days: 80, frequency_orders: 5, monetary_value: 920, segment: 'vip_at_risk', churn_probability: 0.72, subscription_expires_at: new Date().toISOString() }
-]
-
-const demoProfits: ProfitSnapshot[] = [
-  { id: 'p1', order_id: 'ord_01', gross_revenue: 320, net_profit: 218.25, margin_percent: 68.2, currency: 'SAR', calculated_at: new Date().toISOString() },
-  { id: 'p2', order_id: 'ord_02', gross_revenue: 180, net_profit: 101.3, margin_percent: 56.3, currency: 'SAR', calculated_at: new Date().toISOString() }
-]
-
-const demoPriceUpdates: PriceUpdateBatch[] = [
-  { id: 'b1', mode: 'percent', value: 5, target_type: 'all', status: 'queued', items_count: 18, created_at: new Date().toISOString() }
-]
-
-const demoShifts: StaffShift[] = [
-  {
-    id: 's1',
-    merchant_id: 'merchant_demo',
-    user_id: 'agent_01',
-    status: 'open',
-    currency: 'SAR',
-    starts_at: new Date().toISOString(),
-    ends_at: null,
-    opening_cash: 0,
-    closing_cash: null,
-    notes: 'Demo shift'
-  }
-]
+const emptyStoreForm: WooCommerceStorePayload = {
+  name: '',
+  base_url: '',
+  consumer_key: '',
+  consumer_secret: '',
+  currency: 'SAR',
+  timezone: 'Asia/Riyadh',
+  test_connection: true,
+  sync_now: true
+}
 
 export function DashboardExperience() {
   const [activeSection, setActiveSection] = useState<ConsoleSection>('overview')
   const [connection, setConnection] = useState<ConnectionSettings>(() => readConnectionSettings())
-  const [shouldAutoLoad] = useState(() => isReady(readConnectionSettings()))
-  const [summary, setSummary] = useState<DashboardSummary>(demoSummary)
-  const [forecasts, setForecasts] = useState<SalesForecast[]>(demoForecasts)
-  const [fraud, setFraud] = useState<FraudSignal[]>(demoFraud)
-  const [rfm, setRfm] = useState<RfmScore[]>(demoRfm)
-  const [profits, setProfits] = useState<ProfitSnapshot[]>(demoProfits)
-  const [priceUpdates, setPriceUpdates] = useState<PriceUpdateBatch[]>(demoPriceUpdates)
-  const [shifts, setShifts] = useState<StaffShift[]>(demoShifts)
+  const [stores, setStores] = useState<WooCommerceStore[]>([])
+  const [storeForm, setStoreForm] = useState<WooCommerceStorePayload>(emptyStoreForm)
+  const [summary, setSummary] = useState<DashboardSummary>(emptySummary)
+  const [forecasts, setForecasts] = useState<SalesForecast[]>([])
+  const [fraud, setFraud] = useState<FraudSignal[]>([])
+  const [rfm, setRfm] = useState<RfmScore[]>([])
+  const [profits, setProfits] = useState<ProfitSnapshot[]>([])
+  const [priceUpdates, setPriceUpdates] = useState<PriceUpdateBatch[]>([])
+  const [shifts, setShifts] = useState<StaffShift[]>([])
   const [busy, setBusy] = useState(false)
   const [liveMode, setLiveMode] = useState(false)
-  const [status, setStatus] = useState('Demo data loaded')
+  const [connectionResult, setConnectionResult] = useState<WooCommerceConnectionResult | null>(null)
+  const [status, setStatus] = useState('اكتب رابط API والتوكن ومعرف التاجر، ثم اضغط اتصال')
+
+  const apiContext = useMemo(() => ({ apiBaseUrl: connection.apiBaseUrl, token: connection.token }), [connection.apiBaseUrl, connection.token])
+  const selectedStore = stores.find((store) => store.id === connection.storeId) ?? null
 
   useEffect(() => {
-    if (shouldAutoLoad) {
-      void loadDashboard(connection)
+    const stored = readConnectionSettings()
+    if (hasMerchantConnection(stored)) {
+      void loadWorkspace(stored)
     }
-    // Stored browser settings are only used for one initial live hydration.
+    // Initial browser hydration only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function loadDashboard(settings = connection) {
-    if (!isReady(settings)) {
+  async function loadWorkspace(settings = connection) {
+    if (!hasMerchantConnection(settings)) {
       setLiveMode(false)
-      setStatus('Demo data loaded')
+      setStatus('أكمل بيانات الاتصال أولًا')
       return
     }
 
     setBusy(true)
     try {
       const context = toApiContext(settings)
-      const [summaryResponse, forecastResponse, fraudResponse, rfmResponse, profitResponse, priceResponse, shiftResponse] = await Promise.all([
-        lammahApi.dashboard(settings.merchantId, settings.storeId, context),
-        lammahApi.forecasts(settings.merchantId, settings.storeId, context),
-        lammahApi.fraudSignals(settings.merchantId, settings.storeId, context),
-        lammahApi.rfmScores(settings.merchantId, settings.storeId, context),
-        lammahApi.profits(settings.merchantId, settings.storeId, context),
-        lammahApi.priceUpdates(settings.merchantId, settings.storeId, context),
-        lammahApi.shifts(settings.merchantId, context)
-      ])
+      const storesResponse = await lammahApi.stores(settings.merchantId, context)
+      const nextStores = storesResponse.data
+      const nextStoreId = settings.storeId || nextStores[0]?.id || ''
+      const normalized = { ...settings, storeId: nextStoreId }
 
-      setSummary(summaryResponse.data)
-      setForecasts(forecastResponse.data)
-      setFraud(fraudResponse.data)
-      setRfm(rfmResponse.data)
-      setProfits(profitResponse.data)
-      setPriceUpdates(priceResponse.data)
-      setShifts(shiftResponse.data)
-      setLiveMode(true)
-      setStatus('Live API connected')
+      setStores(nextStores)
+      setConnection(normalized)
+      saveConnectionSettings(normalized)
+
+      if (nextStoreId) {
+        await loadStoreData(normalized)
+      } else {
+        clearStoreData()
+        setLiveMode(true)
+        setStatus('متصل. أضف أول متجر WooCommerce من تبويب المتاجر')
+      }
     } catch (error) {
       setLiveMode(false)
-      setStatus(error instanceof Error ? error.message : 'API request failed')
+      setStatus(readableError(error))
     } finally {
       setBusy(false)
     }
+  }
+
+  async function loadStoreData(settings = connection) {
+    if (!hasSelectedStore(settings)) return
+
+    const context = toApiContext(settings)
+    const [summaryResponse, forecastResponse, fraudResponse, rfmResponse, profitResponse, priceResponse, shiftResponse] = await Promise.all([
+      lammahApi.dashboard(settings.merchantId, settings.storeId, context),
+      lammahApi.forecasts(settings.merchantId, settings.storeId, context),
+      lammahApi.fraudSignals(settings.merchantId, settings.storeId, context),
+      lammahApi.rfmScores(settings.merchantId, settings.storeId, context),
+      lammahApi.profits(settings.merchantId, settings.storeId, context),
+      lammahApi.priceUpdates(settings.merchantId, settings.storeId, context),
+      lammahApi.shifts(settings.merchantId, context)
+    ])
+
+    setSummary(summaryResponse.data)
+    setForecasts(forecastResponse.data)
+    setFraud(fraudResponse.data)
+    setRfm(rfmResponse.data)
+    setProfits(profitResponse.data)
+    setPriceUpdates(priceResponse.data)
+    setShifts(shiftResponse.data)
+    setLiveMode(true)
+    setStatus('متصل وجاهز')
+  }
+
+  function clearStoreData() {
+    setSummary(emptySummary)
+    setForecasts([])
+    setFraud([])
+    setRfm([])
+    setProfits([])
+    setPriceUpdates([])
+    setShifts([])
   }
 
   function updateConnection(key: keyof ConnectionSettings, value: string) {
     setConnection((current) => ({ ...current, [key]: value }))
   }
 
-  function saveAndConnect() {
-    const normalized = {
-      ...connection,
-      apiBaseUrl: connection.apiBaseUrl.trim().replace(/\/$/, ''),
-      token: connection.token.trim(),
-      merchantId: connection.merchantId.trim(),
-      storeId: connection.storeId.trim()
-    }
+  function updateStoreForm(key: keyof WooCommerceStorePayload, value: string | boolean) {
+    setStoreForm((current) => ({ ...current, [key]: value }))
+  }
 
+  function saveAndConnect() {
+    const normalized = normalizeConnection(connection)
     setConnection(normalized)
     saveConnectionSettings(normalized)
-    void loadDashboard(normalized)
+    void loadWorkspace(normalized)
+  }
+
+  function selectStore(storeId: string) {
+    const normalized = { ...connection, storeId }
+    setConnection(normalized)
+    saveConnectionSettings(normalized)
+    void loadStoreData(normalized).catch((error) => setStatus(readableError(error)))
+  }
+
+  async function addStore() {
+    if (!hasMerchantConnection(connection)) {
+      setStatus('أكمل بيانات الاتصال قبل إضافة متجر')
+      return
+    }
+
+    if (!storeForm.name || !storeForm.base_url || !storeForm.consumer_key || !storeForm.consumer_secret) {
+      setStatus('اكتب اسم المتجر والرابط و Consumer Key و Consumer Secret')
+      return
+    }
+
+    setBusy(true)
+    try {
+      const response = await lammahApi.createStore(connection.merchantId, apiContext, storeForm)
+      const nextStore = response.data
+      const normalized = { ...connection, storeId: nextStore.id }
+
+      setConnectionResult(response.connection ?? null)
+      setStoreForm(emptyStoreForm)
+      setConnection(normalized)
+      saveConnectionSettings(normalized)
+      setActiveSection('overview')
+      setStatus(response.connection?.ok ? 'تم ربط المتجر وتشغيل المزامنة' : response.connection?.error ?? 'تم حفظ المتجر')
+      await loadWorkspace(normalized)
+    } catch (error) {
+      setStatus(readableError(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function runAction(action: (settings: ConnectionSettings) => Promise<unknown>, label: string) {
-    if (!isReady(connection)) {
-      setStatus('Live connection required')
+    if (!hasSelectedStore(connection)) {
+      setStatus('اختار متجرًا أولًا')
+      setActiveSection('stores')
       return
     }
 
     setBusy(true)
     try {
       await action(connection)
-      setStatus(`${label} queued`)
-      await loadDashboard(connection)
+      setStatus(label)
+      await loadWorkspace(connection)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Action failed')
+      setStatus(readableError(error))
     } finally {
       setBusy(false)
     }
@@ -200,142 +213,56 @@ export function DashboardExperience() {
 
   return (
     <AppShell activeSection={activeSection} liveMode={liveMode} onSectionChange={setActiveSection}>
-      <ConnectionPanel
-        busy={busy}
-        connection={connection}
-        status={status}
-        onChange={updateConnection}
-        onConnect={saveAndConnect}
-        onRefresh={() => void loadDashboard(connection)}
-      />
+      <ConnectionPanel busy={busy} connection={connection} status={status} onChange={updateConnection} onConnect={saveAndConnect} onRefresh={() => void loadWorkspace(connection)} />
 
-      <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Gross revenue" value={formatMoney(summary.gross_revenue)} detail="Synced WooCommerce revenue" tone="teal" icon={CircleDollarSign} />
-        <MetricTile label="Net profit" value={formatMoney(summary.net_profit)} detail="After product cost and fees" tone="sky" icon={ChartNoAxesCombined} />
-        <MetricTile label="Fraud signals" value={String(summary.open_fraud_signals)} detail="Open or reviewing signals" tone="rose" icon={ShieldAlert} />
-        <MetricTile label="Churn risk" value={String(summary.high_churn_customers)} detail="Customers above risk threshold" tone="amber" icon={Users} />
+      <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="إجمالي المبيعات" value={formatMoney(summary.gross_revenue)} detail="من طلبات WooCommerce المتزامنة" tone="teal" icon={CircleDollarSign} />
+        <MetricTile label="صافي الربح" value={formatMoney(summary.net_profit)} detail="بعد التكلفة والرسوم" tone="sky" icon={ChartNoAxesCombined} />
+        <MetricTile label="تنبيهات الاحتيال" value={String(summary.open_fraud_signals)} detail="حسابات تجريبية أو نشاط مشبوه" tone="rose" icon={ShieldAlert} />
+        <MetricTile label="خطر عدم التجديد" value={String(summary.high_churn_customers)} detail="عملاء يحتاجون متابعة" tone="amber" icon={Users} />
       </section>
 
       {activeSection === 'overview' && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
+        <section className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
           <div className="grid gap-4">
+            {!selectedStore && <EmptyStorePrompt onClick={() => setActiveSection('stores')} />}
+            <StoreSummaryCard store={selectedStore} onSync={() => runAction((settings) => lammahApi.syncStore(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم إرسال المزامنة للخلفية')} />
             <ForecastsPanel forecasts={forecasts} />
             <ProfitsPanel profits={profits} />
           </div>
 
           <div className="grid content-start gap-4">
-            <ActionPanel
+            <CommandPanel
               busy={busy}
-              onForecast={() => runAction((settings) => lammahApi.generateForecast(settings.merchantId, settings.storeId, toApiContext(settings)), 'Forecast')}
-              onFraudScan={() => runAction((settings) => lammahApi.scanFraud(settings.merchantId, settings.storeId, toApiContext(settings)), 'Fraud scan')}
-              onRfmRefresh={() => runAction((settings) => lammahApi.refreshRfmScores(settings.merchantId, settings.storeId, toApiContext(settings)), 'RFM refresh')}
-              onPriceLift={(percent) => runAction((settings) => lammahApi.createPriceUpdate(settings.merchantId, settings.storeId, toApiContext(settings), percent), `+${percent}% price update`)}
-              onStartShift={() => runAction((settings) => lammahApi.startShift(settings.merchantId, toApiContext(settings)), 'Shift start')}
+              onForecast={() => runAction((settings) => lammahApi.generateForecast(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم طلب التوقعات')}
+              onFraudScan={() => runAction((settings) => lammahApi.scanFraud(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم تشغيل فحص الاحتيال')}
+              onRfmRefresh={() => runAction((settings) => lammahApi.refreshRfmScores(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم تحديث RFM')}
+              onPriceLift={(percent) => runAction((settings) => lammahApi.createPriceUpdate(settings.merchantId, settings.storeId, toApiContext(settings), percent), `تم طلب زيادة ${percent}%`)}
+              onStartShift={() => runAction((settings) => lammahApi.startShift(settings.merchantId, toApiContext(settings)), 'تم بدء الشفت')}
             />
             <RfmPanel rfm={rfm} />
-            <SurgePanel queuedPriceUpdates={summary.queued_price_updates} />
+            <ProcessCard />
           </div>
         </section>
       )}
 
-      {activeSection === 'fraud' && (
-        <section className="mt-4">
-          <DataPanel
-            title="Fraud and test-account radar"
-            emptyState="No open fraud signals"
-            getRowKey={(row) => row.id}
-            rows={fraud}
-            columns={[
-              { header: 'Severity', render: (row) => <SeverityBadge value={row.severity} /> },
-              { header: 'Score', render: (row) => Math.round(row.risk_score) },
-              { header: 'Signal', render: (row) => row.signal_type },
-              { header: 'Evidence', render: (row) => compactEvidence(row.evidence) },
-              { header: 'Status', render: (row) => row.status },
-              {
-                header: 'Action',
-                render: (row) => (
-                  <button
-                    className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50"
-                    disabled={busy || !liveMode}
-                    onClick={() => runAction((settings) => lammahApi.updateFraudSignal(settings.merchantId, row.id, 'reviewing', toApiContext(settings)), 'Fraud review')}
-                  >
-                    Review
-                  </button>
-                )
-              }
-            ]}
-          />
+      {activeSection === 'stores' && (
+        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} onSelect={selectStore} onSync={(storeId) => runAction((settings) => lammahApi.syncStore(settings.merchantId, storeId, toApiContext(settings)), 'تم إرسال المزامنة للخلفية')} />
+          <StoreFormPanel busy={busy} form={storeForm} result={connectionResult} onChange={updateStoreForm} onSubmit={addStore} />
         </section>
       )}
+
+      {activeSection === 'fraud' && <FraudPanel fraud={fraud} busy={busy} liveMode={liveMode} onReview={(signalId) => runAction((settings) => lammahApi.updateFraudSignal(settings.merchantId, signalId, 'reviewing', toApiContext(settings)), 'تم وضع التنبيه قيد المراجعة')} />}
 
       {activeSection === 'pricing' && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[340px_1fr]">
-          <ActionPanel
-            busy={busy}
-            onForecast={() => runAction((settings) => lammahApi.generateForecast(settings.merchantId, settings.storeId, toApiContext(settings)), 'Forecast')}
-            onFraudScan={() => runAction((settings) => lammahApi.scanFraud(settings.merchantId, settings.storeId, toApiContext(settings)), 'Fraud scan')}
-            onRfmRefresh={() => runAction((settings) => lammahApi.refreshRfmScores(settings.merchantId, settings.storeId, toApiContext(settings)), 'RFM refresh')}
-            onPriceLift={(percent) => runAction((settings) => lammahApi.createPriceUpdate(settings.merchantId, settings.storeId, toApiContext(settings), percent), `+${percent}% price update`)}
-            onStartShift={() => runAction((settings) => lammahApi.startShift(settings.merchantId, toApiContext(settings)), 'Shift start')}
-          />
-          <DataPanel
-            title="Bulk price update batches"
-            emptyState="No price updates yet"
-            getRowKey={(row) => row.id}
-            rows={priceUpdates}
-            columns={[
-              { header: 'Batch', render: (row) => shortId(row.id) },
-              { header: 'Mode', render: (row) => row.mode },
-              { header: 'Value', render: (row) => (row.mode === 'percent' ? `${row.value}%` : row.value) },
-              { header: 'Target', render: (row) => row.target_type },
-              { header: 'Items', render: (row) => row.items_count ?? '-' },
-              { header: 'Status', render: (row) => <StatusBadge value={row.status} /> }
-            ]}
-          />
+        <section className="mt-4 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <PricingActions busy={busy} onPriceLift={(percent) => runAction((settings) => lammahApi.createPriceUpdate(settings.merchantId, settings.storeId, toApiContext(settings), percent), `تم طلب زيادة ${percent}%`)} />
+          <PriceUpdatesPanel priceUpdates={priceUpdates} />
         </section>
       )}
 
-      {activeSection === 'shifts' && (
-        <section className="mt-4">
-          <DataPanel
-            title="Staff shifts"
-            emptyState="No shifts found"
-            getRowKey={(row) => row.id}
-            action={
-              <button
-                className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-1.5 text-xs text-teal-100 disabled:opacity-50"
-                disabled={busy || !liveMode}
-                onClick={() => runAction((settings) => lammahApi.startShift(settings.merchantId, toApiContext(settings)), 'Shift start')}
-              >
-                Start shift
-              </button>
-            }
-            rows={shifts}
-            columns={[
-              { header: 'Shift', render: (row) => shortId(row.id) },
-              { header: 'Agent', render: (row) => shortId(row.user_id) },
-              { header: 'Status', render: (row) => <StatusBadge value={row.status} /> },
-              { header: 'Started', render: (row) => formatDateTime(row.starts_at) },
-              { header: 'Closed', render: (row) => formatDateTime(row.ends_at) },
-              {
-                header: 'Action',
-                render: (row) =>
-                  row.status === 'open' ? (
-                    <button
-                      className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50"
-                      disabled={busy || !liveMode}
-                      onClick={() => runAction((settings) => lammahApi.closeShift(settings.merchantId, row.id, toApiContext(settings)), 'Shift close')}
-                    >
-                      Close
-                    </button>
-                  ) : (
-                    '-'
-                  )
-              }
-            ]}
-          />
-        </section>
-      )}
+      {activeSection === 'shifts' && <ShiftsPanel shifts={shifts} busy={busy} liveMode={liveMode} onStart={() => runAction((settings) => lammahApi.startShift(settings.merchantId, toApiContext(settings)), 'تم بدء الشفت')} onClose={(shiftId) => runAction((settings) => lammahApi.closeShift(settings.merchantId, shiftId, toApiContext(settings)), 'تم إغلاق الشفت')} />}
     </AppShell>
   )
 }
@@ -351,53 +278,208 @@ type ConnectionPanelProps = {
 
 function ConnectionPanel({ busy, connection, status, onChange, onConnect, onRefresh }: ConnectionPanelProps) {
   return (
-    <section className="glass-panel grid gap-3 rounded-md p-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_auto]">
-      <LabeledInput label="API base" value={connection.apiBaseUrl} onChange={(value) => onChange('apiBaseUrl', value)} />
-      <LabeledInput label="Sanctum token" type="password" value={connection.token} onChange={(value) => onChange('token', value)} />
-      <LabeledInput label="Merchant ULID" value={connection.merchantId} onChange={(value) => onChange('merchantId', value)} />
-      <LabeledInput label="Store ULID" value={connection.storeId} onChange={(value) => onChange('storeId', value)} />
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] xl:grid-cols-1">
-        <button className="h-11 rounded-md border border-teal-300/25 bg-teal-300/10 px-3 text-sm text-teal-100 disabled:opacity-50" disabled={busy} onClick={onConnect}>
-          Connect
-        </button>
-        <button className="grid h-11 place-items-center rounded-md border border-white/10 bg-white/5 px-3 text-slate-300 disabled:opacity-50" disabled={busy} onClick={onRefresh} title="Refresh">
-          <RefreshCcw className="size-4" />
-        </button>
+    <section className="glass-panel grid gap-3 rounded-md p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">إعداد الاتصال الأساسي</h2>
+          <p className="mt-1 text-sm text-slate-400">هذه بيانات صاحب الحساب، والعميل لا يحتاج رؤيتها لاحقًا بعد تفعيل تسجيل الدخول.</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="h-10 rounded-md border border-teal-300/25 bg-teal-300/10 px-4 text-sm text-teal-100 disabled:opacity-50" disabled={busy} onClick={onConnect}>
+            اتصال
+          </button>
+          <button className="grid h-10 w-11 place-items-center rounded-md border border-white/10 bg-white/5 text-slate-300 disabled:opacity-50" disabled={busy} onClick={onRefresh} title="تحديث">
+            <RefreshCcw className="size-4" />
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-2 text-sm text-slate-400 xl:col-span-5">
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr]">
+        <LabeledInput label="رابط API على Railway" value={connection.apiBaseUrl} onChange={(value) => onChange('apiBaseUrl', value)} placeholder="https://your-api.up.railway.app" />
+        <LabeledInput label="توكن Sanctum" type="password" value={connection.token} onChange={(value) => onChange('token', value)} placeholder="01...|..." />
+        <LabeledInput label="معرف التاجر" value={connection.merchantId} onChange={(value) => onChange('merchantId', value)} placeholder="Merchant ULID" />
+      </div>
+
+      <div className="flex items-center gap-2 text-sm text-slate-400">
         <Activity className="size-4 text-teal-200" />
-        <span className="line-clamp-1">{status}</span>
+        <span className="break-words">{status}</span>
       </div>
     </section>
   )
 }
 
-function LabeledInput({ label, value, onChange, type = 'text' }: { label: string; value: string; type?: string; onChange: (value: string) => void }) {
+function LabeledInput({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; placeholder?: string; type?: string; onChange: (value: string) => void }) {
   return (
     <label className="grid gap-1.5">
-      <span className="text-xs uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <span className="text-xs font-medium text-slate-400">{label}</span>
       <input
-        className="h-11 rounded-md border border-white/10 bg-white/5 px-3 text-sm text-slate-100 outline-none focus:border-teal-300/50"
+        className="h-12 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-teal-300/50"
         type={type}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
   )
 }
 
+function StoreFormPanel({ busy, form, result, onChange, onSubmit }: { busy: boolean; form: WooCommerceStorePayload; result: WooCommerceConnectionResult | null; onChange: (key: keyof WooCommerceStorePayload, value: string | boolean) => void; onSubmit: () => void }) {
+  return (
+    <section className="glass-panel rounded-md p-4">
+      <div className="flex items-center gap-2">
+        <PlugZap className="size-5 text-teal-200" />
+        <h2 className="text-base font-semibold">ربط متجر WooCommerce</h2>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-slate-400">من WordPress أنشئ REST API Key بصلاحية Read/Write، ثم الصق البيانات هنا. لا تحتاج Railway أو Tinker.</p>
+
+      <div className="mt-4 grid gap-3">
+        <LabeledInput label="اسم المتجر" value={form.name} onChange={(value) => onChange('name', value)} placeholder="متجر سمارت جينز" />
+        <LabeledInput label="رابط WordPress" value={form.base_url} onChange={(value) => onChange('base_url', value)} placeholder="https://smartjenz.com" />
+        <LabeledInput label="Consumer Key" value={form.consumer_key} onChange={(value) => onChange('consumer_key', value)} placeholder="ck_..." />
+        <LabeledInput label="Consumer Secret" type="password" value={form.consumer_secret} onChange={(value) => onChange('consumer_secret', value)} placeholder="cs_..." />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <LabeledInput label="العملة" value={form.currency} onChange={(value) => onChange('currency', value.toUpperCase())} placeholder="SAR" />
+          <LabeledInput label="المنطقة الزمنية" value={form.timezone} onChange={(value) => onChange('timezone', value)} placeholder="Asia/Riyadh" />
+        </div>
+        <label className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+          <input className="size-4 accent-teal-300" type="checkbox" checked={form.sync_now} onChange={(event) => onChange('sync_now', event.target.checked)} />
+          شغل مزامنة المنتجات والطلبات بعد الحفظ
+        </label>
+        <button className="h-12 rounded-md bg-teal-300 px-4 text-sm font-semibold text-slate-950 disabled:opacity-50" disabled={busy} onClick={onSubmit}>
+          حفظ وربط المتجر
+        </button>
+      </div>
+
+      {result && (
+        <div className={`mt-4 rounded-md border p-3 text-sm ${result.ok ? 'border-teal-300/25 bg-teal-300/10 text-teal-100' : 'border-rose-300/25 bg-rose-300/10 text-rose-100'}`}>
+          {result.ok ? `الاتصال ناجح. عينة المنتجات: ${result.sample_count ?? 0}` : result.error ?? 'فشل اختبار الاتصال'}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores: WooCommerceStore[]; selectedStoreId: string; busy: boolean; onSelect: (storeId: string) => void; onSync: (storeId: string) => void }) {
+  return (
+    <section className="glass-panel rounded-md p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">المتاجر المربوطة</h2>
+          <p className="mt-1 text-sm text-slate-400">اختار متجرًا لعرض تحليلاته أو شغل مزامنته.</p>
+        </div>
+        <span className="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300">{stores.length} متجر</span>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {stores.length === 0 && <div className="rounded-md border border-dashed border-white/15 p-6 text-center text-sm text-slate-400">لا يوجد متاجر بعد. أضف أول متجر من النموذج.</div>}
+        {stores.map((store) => (
+          <article key={store.id} className={`rounded-md border p-4 ${selectedStoreId === store.id ? 'border-teal-300/45 bg-teal-300/10' : 'border-white/10 bg-white/5'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-white">{store.name}</h3>
+                <p className="mt-1 break-all text-sm text-slate-400">{store.base_url}</p>
+              </div>
+              <StatusBadge value={store.status} />
+            </div>
+            {store.last_error && <p className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/10 p-2 text-xs text-rose-100">{store.last_error}</p>}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-sm text-teal-100" onClick={() => onSelect(store.id)}>
+                فتح المتجر
+              </button>
+              <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy} onClick={() => onSync(store.id)}>
+                مزامنة الآن
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function StoreSummaryCard({ store, onSync }: { store: WooCommerceStore | null; onSync: () => void }) {
+  if (!store) return null
+
+  return (
+    <section className="glass-panel rounded-md p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="grid size-11 place-items-center rounded-md border border-teal-300/25 bg-teal-300/10">
+            <Store className="size-5 text-teal-100" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">{store.name}</h2>
+            <p className="break-all text-sm text-slate-400">{store.base_url}</p>
+          </div>
+        </div>
+        <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200" onClick={onSync}>
+          مزامنة
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function EmptyStorePrompt({ onClick }: { onClick: () => void }) {
+  return (
+    <section className="glass-panel rounded-md p-6 text-center">
+      <PlugZap className="mx-auto size-9 text-teal-200" />
+      <h2 className="mt-3 text-lg font-semibold">ابدأ بربط متجر WooCommerce</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">بعد الربط، لمّة تسحب المنتجات والطلبات تلقائيًا وتظهر المبيعات والتحليلات هنا.</p>
+      <button className="mt-4 rounded-md bg-teal-300 px-4 py-2 text-sm font-semibold text-slate-950" onClick={onClick}>
+        إضافة متجر
+      </button>
+    </section>
+  )
+}
+
+function CommandPanel({ busy, onForecast, onFraudScan, onRfmRefresh, onPriceLift, onStartShift }: { busy: boolean; onForecast: () => void; onFraudScan: () => void; onRfmRefresh: () => void; onPriceLift: (percent: number) => void; onStartShift: () => void }) {
+  return (
+    <section className="glass-panel rounded-md p-4">
+      <h2 className="text-base font-semibold">أوامر سريعة</h2>
+      <div className="mt-4 grid gap-2">
+        <ActionButton disabled={busy} label="توليد توقع المبيعات" tone="teal" onClick={onForecast} />
+        <ActionButton disabled={busy} label="فحص الحسابات المشبوهة" tone="rose" onClick={onFraudScan} />
+        <ActionButton disabled={busy} label="تحديث شرائح العملاء RFM" tone="sky" onClick={onRfmRefresh} />
+        <div className="grid grid-cols-2 gap-2">
+          <ActionButton disabled={busy} label="+5%" tone="amber" onClick={() => onPriceLift(5)} />
+          <ActionButton disabled={busy} label="+10%" tone="amber" onClick={() => onPriceLift(10)} />
+        </div>
+        <ActionButton disabled={busy} label="بدء شفت دعم" tone="neutral" onClick={onStartShift} />
+      </div>
+    </section>
+  )
+}
+
+function ActionButton({ label, tone, disabled, onClick }: { label: string; tone: 'teal' | 'rose' | 'sky' | 'amber' | 'neutral'; disabled: boolean; onClick: () => void }) {
+  const tones = {
+    teal: 'border-teal-300/25 bg-teal-300/10 text-teal-100',
+    rose: 'border-rose-300/25 bg-rose-300/10 text-rose-100',
+    sky: 'border-sky-300/25 bg-sky-300/10 text-sky-100',
+    amber: 'border-amber-300/25 bg-amber-300/10 text-amber-100',
+    neutral: 'border-white/10 bg-white/5 text-slate-200'
+  }
+
+  return (
+    <button className={`h-11 rounded-md border px-3 text-sm disabled:opacity-50 ${tones[tone]}`} disabled={disabled} onClick={onClick}>
+      {label}
+    </button>
+  )
+}
+
 function ForecastsPanel({ forecasts }: { forecasts: SalesForecast[] }) {
   return (
     <DataPanel
-      title="Sales forecasts"
+      title="توقعات المبيعات"
+      emptyState="لا توجد توقعات بعد"
       getRowKey={(row) => row.id}
       rows={forecasts}
       columns={[
-        { header: 'Month', render: (row) => formatDate(row.forecast_month) },
-        { header: 'Gross', render: (row) => formatMoney(row.gross_revenue_forecast) },
-        { header: 'Net', render: (row) => (row.net_profit_forecast === null ? '-' : formatMoney(row.net_profit_forecast)) },
-        { header: 'Orders', render: (row) => row.order_count_forecast ?? '-' },
-        { header: 'Band', render: (row) => `${formatMoney(row.confidence_low)} - ${formatMoney(row.confidence_high)}` }
+        { header: 'الشهر', render: (row) => formatDate(row.forecast_month) },
+        { header: 'المبيعات', render: (row) => formatMoney(row.gross_revenue_forecast) },
+        { header: 'الربح', render: (row) => (row.net_profit_forecast === null ? '-' : formatMoney(row.net_profit_forecast)) },
+        { header: 'الطلبات', render: (row) => row.order_count_forecast ?? '-' },
+        { header: 'النطاق', render: (row) => `${formatMoney(row.confidence_low)} - ${formatMoney(row.confidence_high)}` }
       ]}
     />
   )
@@ -406,15 +488,15 @@ function ForecastsPanel({ forecasts }: { forecasts: SalesForecast[] }) {
 function ProfitsPanel({ profits }: { profits: ProfitSnapshot[] }) {
   return (
     <DataPanel
-      title="Net profit snapshots"
+      title="صافي الربح حسب الطلبات"
+      emptyState="لا توجد طلبات محسوبة بعد"
       getRowKey={(row) => row.id}
       rows={profits}
       columns={[
-        { header: 'Order', render: (row) => shortId(row.order_id) },
-        { header: 'Gross', render: (row) => formatMoney(row.gross_revenue, row.currency) },
-        { header: 'Net', render: (row) => formatMoney(row.net_profit, row.currency) },
-        { header: 'Margin', render: (row) => (row.margin_percent === null ? '-' : `${row.margin_percent}%`) },
-        { header: 'Calculated', render: (row) => formatDateTime(row.calculated_at) }
+        { header: 'الطلب', render: (row) => shortId(row.order_id) },
+        { header: 'الإجمالي', render: (row) => formatMoney(row.gross_revenue, row.currency) },
+        { header: 'الصافي', render: (row) => formatMoney(row.net_profit, row.currency) },
+        { header: 'الهامش', render: (row) => (row.margin_percent === null ? '-' : `${row.margin_percent}%`) }
       ]}
     />
   )
@@ -423,63 +505,169 @@ function ProfitsPanel({ profits }: { profits: ProfitSnapshot[] }) {
 function RfmPanel({ rfm }: { rfm: RfmScore[] }) {
   return (
     <DataPanel
-      title="RFM churn watch"
-      emptyState="No customers above churn threshold"
+      title="عملاء يحتاجون متابعة"
+      emptyState="لا يوجد عملاء بخطر مرتفع"
       getRowKey={(row) => row.id}
       rows={rfm}
       columns={[
-        { header: 'Customer', render: (row) => shortId(row.customer_id) },
-        { header: 'Segment', render: (row) => row.segment },
-        { header: 'Churn', render: (row) => formatPercent(row.churn_probability) }
+        { header: 'العميل', render: (row) => shortId(row.customer_id) },
+        { header: 'الشريحة', render: (row) => row.segment },
+        { header: 'خطر عدم التجديد', render: (row) => formatPercent(row.churn_probability) }
       ]}
     />
   )
 }
 
-function SurgePanel({ queuedPriceUpdates }: { queuedPriceUpdates: number }) {
+function ProcessCard() {
   return (
-    <div className="glass-panel rounded-md p-4 text-sm text-slate-400">
+    <section className="glass-panel rounded-md p-4 text-sm text-slate-400">
       <div className="flex items-center gap-2 text-amber-100">
         <AlertTriangle className="size-4" />
-        Surge pricing
+        طريقة تشغيل العميل
       </div>
-      <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-3">
-        <div className="grid size-11 place-items-center rounded-md border border-amber-300/25 bg-amber-300/10 text-lg font-semibold text-amber-100">{queuedPriceUpdates}</div>
-        <p className="leading-6">Queued bulk price actions waiting for the worker.</p>
+      <ol className="mt-3 list-decimal space-y-2 pr-5 leading-6">
+        <li>تدخل WooCommerce keys في تبويب المتاجر.</li>
+        <li>لمّة تختبر الاتصال وتشغل المزامنة.</li>
+        <li>العميل يستلم رابط الداشبورد وحساب دخول، وليس Railway أو Supabase.</li>
+      </ol>
+    </section>
+  )
+}
+
+function FraudPanel({ fraud, busy, liveMode, onReview }: { fraud: FraudSignal[]; busy: boolean; liveMode: boolean; onReview: (signalId: string) => void }) {
+  return (
+    <section className="mt-4">
+      <DataPanel
+        title="رادار الاحتيال والحسابات التجريبية"
+        emptyState="لا توجد تنبيهات مفتوحة"
+        getRowKey={(row) => row.id}
+        rows={fraud}
+        columns={[
+          { header: 'الخطورة', render: (row) => <SeverityBadge value={row.severity} /> },
+          { header: 'الدرجة', render: (row) => Math.round(row.risk_score) },
+          { header: 'الإشارة', render: (row) => row.signal_type },
+          { header: 'الحالة', render: (row) => row.status },
+          {
+            header: 'إجراء',
+            render: (row) => (
+              <button className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50" disabled={busy || !liveMode} onClick={() => onReview(row.id)}>
+                مراجعة
+              </button>
+            )
+          }
+        ]}
+      />
+    </section>
+  )
+}
+
+function PricingActions({ busy, onPriceLift }: { busy: boolean; onPriceLift: (percent: number) => void }) {
+  return (
+    <section className="glass-panel rounded-md p-4">
+      <div className="flex items-center gap-2">
+        <Tags className="size-5 text-amber-100" />
+        <h2 className="text-base font-semibold">تعديل الأسعار</h2>
       </div>
-    </div>
+      <p className="mt-2 text-sm leading-6 text-slate-400">استخدمها أثناء الضغط العالي أو المواسم. كل دفعة محفوظة وقابلة للمراجعة.</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <ActionButton disabled={busy} label="+5%" tone="amber" onClick={() => onPriceLift(5)} />
+        <ActionButton disabled={busy} label="+10%" tone="amber" onClick={() => onPriceLift(10)} />
+      </div>
+    </section>
+  )
+}
+
+function PriceUpdatesPanel({ priceUpdates }: { priceUpdates: PriceUpdateBatch[] }) {
+  return (
+    <DataPanel
+      title="دفعات تعديل الأسعار"
+      emptyState="لا توجد دفعات بعد"
+      getRowKey={(row) => row.id}
+      rows={priceUpdates}
+      columns={[
+        { header: 'الدفعة', render: (row) => shortId(row.id) },
+        { header: 'النوع', render: (row) => row.mode },
+        { header: 'القيمة', render: (row) => (row.mode === 'percent' ? `${row.value}%` : row.value) },
+        { header: 'الحالة', render: (row) => <StatusBadge value={row.status} /> }
+      ]}
+    />
+  )
+}
+
+function ShiftsPanel({ shifts, busy, liveMode, onStart, onClose }: { shifts: StaffShift[]; busy: boolean; liveMode: boolean; onStart: () => void; onClose: (shiftId: string) => void }) {
+  return (
+    <section className="mt-4">
+      <DataPanel
+        title="شفتات فريق الدعم"
+        emptyState="لا توجد شفتات"
+        getRowKey={(row) => row.id}
+        action={
+          <button className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-1.5 text-xs text-teal-100 disabled:opacity-50" disabled={busy || !liveMode} onClick={onStart}>
+            بدء شفت
+          </button>
+        }
+        rows={shifts}
+        columns={[
+          { header: 'الشفت', render: (row) => shortId(row.id) },
+          { header: 'الموظف', render: (row) => shortId(row.user_id) },
+          { header: 'الحالة', render: (row) => <StatusBadge value={row.status} /> },
+          { header: 'بدأ', render: (row) => formatDateTime(row.starts_at) },
+          {
+            header: 'إجراء',
+            render: (row) =>
+              row.status === 'open' ? (
+                <button className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50" disabled={busy || !liveMode} onClick={() => onClose(row.id)}>
+                  إغلاق
+                </button>
+              ) : (
+                '-'
+              )
+          }
+        ]}
+      />
+    </section>
   )
 }
 
 function SeverityBadge({ value }: { value: FraudSignal['severity'] }) {
   const tone = value === 'critical' || value === 'high' ? 'border-rose-300/30 bg-rose-300/10 text-rose-100' : 'border-amber-300/30 bg-amber-300/10 text-amber-100'
 
-  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs ${tone}`}>{value}</span>
+  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs ${tone}`}>{translateSeverity(value)}</span>
 }
 
 function StatusBadge({ value }: { value: string }) {
-  const tone = value === 'open' || value === 'queued' || value === 'processing' ? 'border-teal-300/30 bg-teal-300/10 text-teal-100' : 'border-white/10 bg-white/5 text-slate-300'
+  const tone = ['active', 'open', 'queued', 'processing'].includes(value) ? 'border-teal-300/30 bg-teal-300/10 text-teal-100' : value === 'error' ? 'border-rose-300/30 bg-rose-300/10 text-rose-100' : 'border-white/10 bg-white/5 text-slate-300'
 
-  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs ${tone}`}>{value}</span>
+  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs ${tone}`}>{translateStatus(value)}</span>
 }
 
 function toApiContext(settings: ConnectionSettings) {
   return { apiBaseUrl: settings.apiBaseUrl, token: settings.token }
 }
 
-function isReady(settings: ConnectionSettings) {
+function hasMerchantConnection(settings: ConnectionSettings) {
+  return Boolean(settings.apiBaseUrl && settings.token && settings.merchantId)
+}
+
+function hasSelectedStore(settings: ConnectionSettings) {
   return Boolean(settings.apiBaseUrl && settings.token && settings.merchantId && settings.storeId)
 }
 
-function compactEvidence(evidence: Record<string, unknown>) {
-  const firstEntries = Object.entries(evidence).slice(0, 2)
-  if (firstEntries.length === 0) return '-'
+function normalizeConnection(settings: ConnectionSettings): ConnectionSettings {
+  return {
+    apiBaseUrl: settings.apiBaseUrl.trim().replace(/\/$/, ''),
+    token: settings.token.trim(),
+    merchantId: settings.merchantId.trim(),
+    storeId: settings.storeId.trim()
+  }
+}
 
-  return firstEntries.map(([key, value]) => `${key}: ${String(value)}`).join(', ')
+function readableError(error: unknown) {
+  return error instanceof Error ? error.message : 'حدث خطأ غير متوقع'
 }
 
 function formatMoney(value: number | null | undefined, currency = 'SAR') {
-  return `${currency} ${Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  return `${currency} ${Number(value ?? 0).toLocaleString('ar-EG', { maximumFractionDigits: 2 })}`
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -491,15 +679,43 @@ function formatPercent(value: number | null | undefined) {
 function formatDate(value: string | null | undefined) {
   if (!value) return '-'
 
-  return new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' }).format(new Date(value))
+  return new Intl.DateTimeFormat('ar-EG', { month: 'short', year: 'numeric' }).format(new Date(value))
 }
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '-'
 
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
 function shortId(value: string) {
   return value.length <= 12 ? value : `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function translateStatus(value: string) {
+  const map: Record<string, string> = {
+    active: 'نشط',
+    disabled: 'متوقف',
+    error: 'خطأ',
+    open: 'مفتوح',
+    closed: 'مغلق',
+    queued: 'بالانتظار',
+    running: 'قيد التشغيل',
+    processing: 'قيد المعالجة',
+    completed: 'مكتمل',
+    failed: 'فشل'
+  }
+
+  return map[value] ?? value
+}
+
+function translateSeverity(value: string) {
+  const map: Record<string, string> = {
+    low: 'منخفض',
+    medium: 'متوسط',
+    high: 'مرتفع',
+    critical: 'حرج'
+  }
+
+  return map[value] ?? value
 }

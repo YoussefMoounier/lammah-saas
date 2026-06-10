@@ -167,7 +167,8 @@ class WooCommerceSyncService
     {
         return match ($resource) {
             'categories' => ['orderby' => 'id', 'order' => 'asc'],
-            'products', 'customers', 'orders' => ['orderby' => 'date', 'order' => 'desc'],
+            'products', 'orders' => ['orderby' => 'date', 'order' => 'desc'],
+            'customers' => ['orderby' => 'registered_date', 'order' => 'desc'],
             default => [],
         };
     }

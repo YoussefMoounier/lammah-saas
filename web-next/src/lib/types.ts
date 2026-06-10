@@ -11,6 +11,47 @@ export type ConnectionSettings = {
   storeId: string
 }
 
+export type WooCommerceStore = {
+  id: string
+  merchant_id: string
+  name: string
+  base_url: string
+  api_version: string
+  currency: string
+  timezone: string
+  status: 'active' | 'disabled' | 'error' | string
+  last_successful_sync_at: string | null
+  last_failed_sync_at: string | null
+  last_error: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type WooCommerceStorePayload = {
+  name: string
+  base_url: string
+  consumer_key: string
+  consumer_secret: string
+  currency: string
+  timezone: string
+  test_connection: boolean
+  sync_now: boolean
+}
+
+export type WooCommerceConnectionResult = {
+  ok: boolean
+  reachable: boolean
+  authenticated: boolean
+  sample_count?: number
+  error?: string
+}
+
+export type WooCommerceStoreResponse = {
+  data: WooCommerceStore
+  connection?: WooCommerceConnectionResult | null
+  sync_queued?: boolean
+}
+
 export type DashboardSummary = {
   period: { days: number; starts_at: string; ends_at: string }
   gross_revenue: number

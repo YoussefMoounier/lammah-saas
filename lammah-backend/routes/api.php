@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\FraudSignalController;
 use App\Http\Controllers\Api\V1\NetProfitController;
 use App\Http\Controllers\Api\V1\RfmScoreController;
 use App\Http\Controllers\Api\V1\StaffShiftController;
+use App\Http\Controllers\Api\V1\WooCommerceStoreController;
 use App\Http\Controllers\Webhooks\WooCommerceWebhookController;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -633,6 +634,15 @@ Route::prefix('v1')
     ->group(function (): void {
         Route::get('/merchants/{merchant}/dashboard/summary', DashboardSummaryController::class)
             ->name('api.v1.dashboard.summary');
+
+        Route::get('/merchants/{merchant}/stores', [WooCommerceStoreController::class, 'index'])
+            ->name('api.v1.stores.index');
+        Route::post('/merchants/{merchant}/stores', [WooCommerceStoreController::class, 'store'])
+            ->name('api.v1.stores.store');
+        Route::post('/merchants/{merchant}/stores/{store}/test', [WooCommerceStoreController::class, 'test'])
+            ->name('api.v1.stores.test');
+        Route::post('/merchants/{merchant}/stores/{store}/sync', [WooCommerceStoreController::class, 'sync'])
+            ->name('api.v1.stores.sync');
 
         Route::get('/merchants/{merchant}/stores/{store}/forecasts', [ForecastController::class, 'index'])
             ->name('api.v1.forecasts.index');
