@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\RfmScoreController;
 use App\Http\Controllers\Api\V1\StaffShiftController;
 use App\Http\Controllers\Webhooks\WooCommerceWebhookController;
 use App\Models\User;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -19,9 +20,54 @@ Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class
 
 /*
 |--------------------------------------------------------------------------
+| Temporary migration route
+|--------------------------------------------------------------------------
+| افتح بعد الـ Deploy:
+| https://lammah-saas-production.up.railway.app/api/ops/run-migrations/lammah-temp-2026
+|
+| مهم:
+| احذف هذا الـ Route بعد ما migrations تشتغل.
+*/
+
+Route::get('/ops/run-migrations/{secret}', function (string $secret) {
+    $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
+
+    if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'invalid_secret',
+            'message' => 'Invalid bootstrap secret.',
+        ], 403);
+    }
+
+    try {
+        Artisan::call('migrate', [
+            '--force' => true,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'stage' => 'migrations_done',
+            'output' => Artisan::output(),
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'migration_exception',
+            'error_class' => get_class($e),
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
 | Temporary dashboard bootstrap route
 |--------------------------------------------------------------------------
-| URL after deploy:
+| افتح بعد تشغيل migrations:
 | https://lammah-saas-production.up.railway.app/api/ops/bootstrap-dashboard/lammah-temp-2026
 |
 | مهم:
@@ -29,7 +75,6 @@ Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class
 */
 
 Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
-
     $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
 
     if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
