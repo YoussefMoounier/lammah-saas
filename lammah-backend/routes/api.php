@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\StaffShiftController;
 use App\Http\Controllers\Webhooks\WooCommerceWebhookController;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -46,7 +47,6 @@ Route::get('/ops/run-migrations/{secret}', function (string $secret) {
             'stage' => 'migrations_done',
             'output' => Artisan::output(),
         ]);
-
     } catch (\Throwable $e) {
         return response()->json([
             'ok' => false,
@@ -106,6 +106,12 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
         DB::purge('pgsql');
         DB::reconnect('pgsql');
 
+        /*
+        |--------------------------------------------------------------------------
+        | Create or get bootstrap user
+        |--------------------------------------------------------------------------
+        */
+
         $user = User::firstOrCreate(
             ['email' => $env('BOOTSTRAP_ADMIN_EMAIL', 'admin@lammah.local')],
             [
@@ -164,11 +170,11 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
             }
 
             if (in_array('currency', $merchantColumns, true)) {
-                $merchantInsert['currency'] = 'EGP';
+                $merchantInsert['currency'] = 'SAR';
             }
 
             if (in_array('timezone', $merchantColumns, true)) {
-                $merchantInsert['timezone'] = 'Africa/Cairo';
+                $merchantInsert['timezone'] = 'UTC';
             }
 
             if (in_array('user_id', $merchantColumns, true)) {
@@ -185,6 +191,12 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
 
             if (in_array('status', $merchantColumns, true)) {
                 $merchantInsert['status'] = 'active';
+            }
+
+            if (in_array('metadata', $merchantColumns, true)) {
+                $merchantInsert['metadata'] = json_encode([
+                    'created_by' => 'bootstrap_route',
+                ]);
             }
 
             if (in_array('created_at', $merchantColumns, true)) {
@@ -221,6 +233,10 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
                     'user_id' => $user->id,
                 ];
 
+                if (in_array('role', $pivotColumns, true)) {
+                    $pivotInsert['role'] = 'owner';
+                }
+
                 if (in_array('created_at', $pivotColumns, true)) {
                     $pivotInsert['created_at'] = now();
                 }
@@ -249,89 +265,51 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
 
         if (!$store) {
             $storeId = (string) Str::ulid();
+
             $baseUrl = 'https://example.com';
+            $consumerKey = 'ck_demo';
+            $consumerSecret = 'cs_demo';
+            $webhookSecret = 'demo_webhook_secret';
 
-            $storeInsert = [];
+            $storeInsert = [
+                'id' => $storeId,
+                'merchant_id' => $merchant->id,
+                'name' => 'Demo WooCommerce Store',
+                'base_url' => $baseUrl,
+                'base_url_hash' => hash('sha256', $baseUrl),
+                'consumer_key_encrypted' => Crypt::encryptString($consumerKey),
+                'consumer_secret_encrypted' => Crypt::encryptString($consumerSecret),
+                'webhook_secret_encrypted' => Crypt::encryptString($webhookSecret),
+                'api_version' => 'wc/v3',
+                'currency' => 'SAR',
+                'timezone' => 'UTC',
+                'status' => 'active',
+                'sync_settings' => json_encode([]),
+                'metadata' => json_encode([
+                    'created_by' => 'bootstrap_route',
+                    'note' => 'temporary demo store',
+                ]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
 
-            if (in_array('id', $storeColumns, true)) {
-                $storeInsert['id'] = $storeId;
-            }
+            /*
+            |--------------------------------------------------------------------------
+            | Safety: only keep columns that actually exist
+            |--------------------------------------------------------------------------
+            */
 
-            if (in_array('merchant_id', $storeColumns, true)) {
-                $storeInsert['merchant_id'] = $merchant->id;
-            }
-
-            if (in_array('name', $storeColumns, true)) {
-                $storeInsert['name'] = 'Demo WooCommerce Store';
-            }
-
-            if (in_array('base_url', $storeColumns, true)) {
-                $storeInsert['base_url'] = $baseUrl;
-            }
-
-            if (in_array('base_url_hash', $storeColumns, true)) {
-                $storeInsert['base_url_hash'] = hash('sha256', $baseUrl);
-            }
-
-            if (in_array('url', $storeColumns, true)) {
-                $storeInsert['url'] = $baseUrl;
-            }
-
-            if (in_array('store_url', $storeColumns, true)) {
-                $storeInsert['store_url'] = $baseUrl;
-            }
-
-            if (in_array('woocommerce_url', $storeColumns, true)) {
-                $storeInsert['woocommerce_url'] = $baseUrl;
-            }
-
-            if (in_array('consumer_key', $storeColumns, true)) {
-                $storeInsert['consumer_key'] = 'ck_demo';
-            }
-
-            if (in_array('consumer_secret', $storeColumns, true)) {
-                $storeInsert['consumer_secret'] = 'cs_demo';
-            }
-
-            if (in_array('api_key', $storeColumns, true)) {
-                $storeInsert['api_key'] = 'ck_demo';
-            }
-
-            if (in_array('api_secret', $storeColumns, true)) {
-                $storeInsert['api_secret'] = 'cs_demo';
-            }
-
-            if (in_array('wc_api_version', $storeColumns, true)) {
-                $storeInsert['wc_api_version'] = 'wc/v3';
-            }
-
-            if (in_array('api_version', $storeColumns, true)) {
-                $storeInsert['api_version'] = 'wc/v3';
-            }
-
-            if (in_array('currency', $storeColumns, true)) {
-                $storeInsert['currency'] = 'EGP';
-            }
-
-            if (in_array('timezone', $storeColumns, true)) {
-                $storeInsert['timezone'] = 'Africa/Cairo';
-            }
-
-            if (in_array('status', $storeColumns, true)) {
-                $storeInsert['status'] = 'active';
-            }
-
-            if (in_array('created_at', $storeColumns, true)) {
-                $storeInsert['created_at'] = now();
-            }
-
-            if (in_array('updated_at', $storeColumns, true)) {
-                $storeInsert['updated_at'] = now();
-            }
+            $storeInsert = array_filter(
+                $storeInsert,
+                fn ($value, $key) => in_array($key, $storeColumns, true),
+                ARRAY_FILTER_USE_BOTH
+            );
 
             DB::table('woocommerce_stores')->insert($storeInsert);
 
-            $store = DB::table('woocommerce_stores')->where('id', $storeId)->first();
+            $store = DB::table('woocommerce_stores')
+                ->where('id', $storeId)
+                ->first();
         }
 
         return response()->json([
@@ -517,6 +495,10 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                     'merchant_id' => $merchant->id,
                     'user_id' => $user->id,
                 ];
+
+                if (in_array('role', $pivotColumns, true)) {
+                    $pivotInsert['role'] = 'owner';
+                }
 
                 if (in_array('created_at', $pivotColumns, true)) {
                     $pivotInsert['created_at'] = now();
