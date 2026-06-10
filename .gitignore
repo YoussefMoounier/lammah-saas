@@ -1,0 +1,8 @@
+outputs/
+backend/
+work/
+web-vue/
+lammah-backend/vendor/
+web-next/node_modules/
+web-next/.next/
+.env
