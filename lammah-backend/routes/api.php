@@ -209,7 +209,9 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
 
             DB::table('merchants')->insert($merchantInsert);
 
-            $merchant = DB::table('merchants')->where('id', $merchantId)->first();
+            $merchant = DB::table('merchants')
+                ->where('id', $merchantId)
+                ->first();
         }
 
         /*
@@ -436,6 +438,12 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             ], 500);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Create or get User
+        |--------------------------------------------------------------------------
+        */
+
         $user = User::firstOrCreate(
             ['email' => $env('BOOTSTRAP_ADMIN_EMAIL', 'admin@lammah.local')],
             [
@@ -443,6 +451,12 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'password' => Hash::make($env('BOOTSTRAP_ADMIN_PASSWORD', 'change-this-password')),
             ]
         );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get Merchant and Store
+        |--------------------------------------------------------------------------
+        */
 
         $merchant = DB::table('merchants')->first();
 
@@ -479,6 +493,12 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             ], 404);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Link User to Merchant
+        |--------------------------------------------------------------------------
+        */
+
         $pivotColumns = Schema::connection('pgsql')->getColumnListing('merchant_user');
 
         if (
@@ -512,9 +532,42 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             }
         }
 
-        $token = $user
-            ->createToken('dashboard-token-' . now()->format('YmdHis'), ['*'])
-            ->plainTextToken;
+        /*
+        |--------------------------------------------------------------------------
+        | Create Sanctum Token manually because personal_access_tokens.id is ULID
+        |--------------------------------------------------------------------------
+        */
+
+        $tokenId = (string) Str::ulid();
+        $rawToken = Str::random(40);
+        $hashedToken = hash('sha256', $rawToken);
+
+        $tokenColumns = Schema::connection('pgsql')->getColumnListing('personal_access_tokens');
+
+        $tokenInsert = [
+            'id' => $tokenId,
+            'tokenable_type' => User::class,
+            'tokenable_id' => $user->id,
+            'name' => 'dashboard-token-' . now()->format('YmdHis'),
+            'token' => $hashedToken,
+            'abilities' => json_encode(['*']),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if (in_array('expires_at', $tokenColumns, true)) {
+            $tokenInsert['expires_at'] = null;
+        }
+
+        $tokenInsert = array_filter(
+            $tokenInsert,
+            fn ($value, $key) => in_array($key, $tokenColumns, true),
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        DB::table('personal_access_tokens')->insert($tokenInsert);
+
+        $token = $tokenId . '|' . $rawToken;
 
         return response()->json([
             'ok' => true,
@@ -531,6 +584,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'database_info' => $dbInfo,
                 'merchant_ulid_source' => 'merchants.id',
                 'store_ulid_source' => 'woocommerce_stores.id',
+                'token_id_source' => 'manual ULID inserted into personal_access_tokens.id',
                 'important_note' => 'MERCHANT_ULID is not user id.',
             ],
 
@@ -553,7 +607,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 ],
             ],
 
-            'security_warning' => 'Copy the values, then delete this route or change BOOTSTRAP_SECRET immediately.',
+            'security_warning' => 'Copy the values, then delete these temporary routes or change BOOTSTRAP_SECRET immediately.',
         ]);
 
     } catch (\Throwable $e) {
