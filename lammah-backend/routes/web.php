@@ -7,8 +7,16 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 
 Route::get('/', function () {
-    return view('welcome');
-});
+    return response()->json([
+        'ok' => true,
+        'message' => 'Laravel backend is running',
+    ]);
+})->withoutMiddleware([
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+]);
 
 Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
@@ -21,7 +29,11 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
     $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
 
     if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
-        abort(403, 'Invalid bootstrap secret.');
+        return response()->json([
+            'ok' => false,
+            'stage' => 'invalid_secret',
+            'message' => 'Invalid bootstrap secret.',
+        ], 403);
     }
 
     try {
@@ -140,7 +152,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
         |--------------------------------------------------------------------------
         | 7) جلب Merchant ULID الصحيح من جدول merchants
         |--------------------------------------------------------------------------
-        | مهم: Merchant ULID ليس هو User ID.
         */
 
         $merchant = DB::table('merchants')->first();
@@ -279,4 +290,9 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             'line' => $e->getLine(),
         ], 500);
     }
-});
+})->withoutMiddleware([
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+]);
