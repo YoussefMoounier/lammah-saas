@@ -23,11 +23,6 @@ Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class
 |--------------------------------------------------------------------------
 | Temporary migration route
 |--------------------------------------------------------------------------
-| افتح بعد الـ Deploy:
-| https://lammah-saas-production.up.railway.app/api/ops/run-migrations/lammah-temp-2026
-|
-| مهم:
-| احذف هذا الـ Route بعد ما migrations تشتغل.
 */
 
 Route::get('/ops/run-migrations/{secret}', function (string $secret) {
@@ -68,11 +63,6 @@ Route::get('/ops/run-migrations/{secret}', function (string $secret) {
 |--------------------------------------------------------------------------
 | Temporary merchant + store seed route
 |--------------------------------------------------------------------------
-| افتح بعد الـ Deploy:
-| https://lammah-saas-production.up.railway.app/api/ops/seed-merchant-store/lammah-temp-2026
-|
-| مهم:
-| احذف هذا الـ Route بعد إنشاء Merchant و Store.
 */
 
 Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
@@ -135,83 +125,84 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
         */
 
         $merchant = DB::table('merchants')->first();
-if (!$merchant) {
-    $merchantId = (string) Str::ulid();
 
-    $merchantInsert = [];
+        if (!$merchant) {
+            $merchantId = (string) Str::ulid();
 
-    if (in_array('id', $merchantColumns, true)) {
-        $merchantInsert['id'] = $merchantId;
-    }
+            $merchantInsert = [];
 
-    if (in_array('name', $merchantColumns, true)) {
-        $merchantInsert['name'] = 'Lammah Test Merchant';
-    }
+            if (in_array('id', $merchantColumns, true)) {
+                $merchantInsert['id'] = $merchantId;
+            }
 
-    if (in_array('company_name', $merchantColumns, true)) {
-        $merchantInsert['company_name'] = 'Lammah Test Company';
-    }
+            if (in_array('name', $merchantColumns, true)) {
+                $merchantInsert['name'] = 'Lammah Test Merchant';
+            }
 
-    if (in_array('slug', $merchantColumns, true)) {
-        $merchantInsert['slug'] = 'lammah-test-merchant';
-    }
+            if (in_array('company_name', $merchantColumns, true)) {
+                $merchantInsert['company_name'] = 'Lammah Test Company';
+            }
 
-    if (in_array('email', $merchantColumns, true)) {
-        $merchantInsert['email'] = $user->email;
-    }
+            if (in_array('slug', $merchantColumns, true)) {
+                $merchantInsert['slug'] = 'lammah-test-merchant';
+            }
 
-    if (in_array('contact_name', $merchantColumns, true)) {
-        $merchantInsert['contact_name'] = $user->name ?? 'Admin';
-    }
+            if (in_array('email', $merchantColumns, true)) {
+                $merchantInsert['email'] = $user->email;
+            }
 
-    if (in_array('phone', $merchantColumns, true)) {
-        $merchantInsert['phone'] = '+201000000000';
-    }
+            if (in_array('contact_name', $merchantColumns, true)) {
+                $merchantInsert['contact_name'] = $user->name ?? 'Admin';
+            }
 
-    if (in_array('country', $merchantColumns, true)) {
-        $merchantInsert['country'] = 'EG';
-    }
+            if (in_array('phone', $merchantColumns, true)) {
+                $merchantInsert['phone'] = '+201000000000';
+            }
 
-    if (in_array('currency', $merchantColumns, true)) {
-        $merchantInsert['currency'] = 'EGP';
-    }
+            if (in_array('country', $merchantColumns, true)) {
+                $merchantInsert['country'] = 'EG';
+            }
 
-    if (in_array('timezone', $merchantColumns, true)) {
-        $merchantInsert['timezone'] = 'Africa/Cairo';
-    }
+            if (in_array('currency', $merchantColumns, true)) {
+                $merchantInsert['currency'] = 'EGP';
+            }
 
-    if (in_array('user_id', $merchantColumns, true)) {
-        $merchantInsert['user_id'] = $user->id;
-    }
+            if (in_array('timezone', $merchantColumns, true)) {
+                $merchantInsert['timezone'] = 'Africa/Cairo';
+            }
 
-    if (in_array('owner_id', $merchantColumns, true)) {
-        $merchantInsert['owner_id'] = $user->id;
-    }
+            if (in_array('user_id', $merchantColumns, true)) {
+                $merchantInsert['user_id'] = $user->id;
+            }
 
-    if (in_array('owner_user_id', $merchantColumns, true)) {
-        $merchantInsert['owner_user_id'] = $user->id;
-    }
+            if (in_array('owner_id', $merchantColumns, true)) {
+                $merchantInsert['owner_id'] = $user->id;
+            }
 
-    if (in_array('status', $merchantColumns, true)) {
-        $merchantInsert['status'] = 'active';
-    }
+            if (in_array('owner_user_id', $merchantColumns, true)) {
+                $merchantInsert['owner_user_id'] = $user->id;
+            }
 
-    if (in_array('created_at', $merchantColumns, true)) {
-        $merchantInsert['created_at'] = now();
-    }
+            if (in_array('status', $merchantColumns, true)) {
+                $merchantInsert['status'] = 'active';
+            }
 
-    if (in_array('updated_at', $merchantColumns, true)) {
-        $merchantInsert['updated_at'] = now();
-    }
+            if (in_array('created_at', $merchantColumns, true)) {
+                $merchantInsert['created_at'] = now();
+            }
 
-    DB::table('merchants')->insert($merchantInsert);
+            if (in_array('updated_at', $merchantColumns, true)) {
+                $merchantInsert['updated_at'] = now();
+            }
 
-    $merchant = DB::table('merchants')->where('id', $merchantId)->first();
-}
+            DB::table('merchants')->insert($merchantInsert);
+
+            $merchant = DB::table('merchants')->where('id', $merchantId)->first();
+        }
 
         /*
         |--------------------------------------------------------------------------
-        | Link User to Merchant if merchant_user exists
+        | Link User to Merchant
         |--------------------------------------------------------------------------
         */
 
@@ -258,6 +249,7 @@ if (!$merchant) {
 
         if (!$store) {
             $storeId = (string) Str::ulid();
+            $baseUrl = 'https://example.com';
 
             $storeInsert = [];
 
@@ -274,15 +266,23 @@ if (!$merchant) {
             }
 
             if (in_array('base_url', $storeColumns, true)) {
-                $storeInsert['base_url'] = 'https://example.com';
+                $storeInsert['base_url'] = $baseUrl;
+            }
+
+            if (in_array('base_url_hash', $storeColumns, true)) {
+                $storeInsert['base_url_hash'] = hash('sha256', $baseUrl);
             }
 
             if (in_array('url', $storeColumns, true)) {
-                $storeInsert['url'] = 'https://example.com';
+                $storeInsert['url'] = $baseUrl;
             }
 
             if (in_array('store_url', $storeColumns, true)) {
-                $storeInsert['store_url'] = 'https://example.com';
+                $storeInsert['store_url'] = $baseUrl;
+            }
+
+            if (in_array('woocommerce_url', $storeColumns, true)) {
+                $storeInsert['woocommerce_url'] = $baseUrl;
             }
 
             if (in_array('consumer_key', $storeColumns, true)) {
@@ -291,6 +291,30 @@ if (!$merchant) {
 
             if (in_array('consumer_secret', $storeColumns, true)) {
                 $storeInsert['consumer_secret'] = 'cs_demo';
+            }
+
+            if (in_array('api_key', $storeColumns, true)) {
+                $storeInsert['api_key'] = 'ck_demo';
+            }
+
+            if (in_array('api_secret', $storeColumns, true)) {
+                $storeInsert['api_secret'] = 'cs_demo';
+            }
+
+            if (in_array('wc_api_version', $storeColumns, true)) {
+                $storeInsert['wc_api_version'] = 'wc/v3';
+            }
+
+            if (in_array('api_version', $storeColumns, true)) {
+                $storeInsert['api_version'] = 'wc/v3';
+            }
+
+            if (in_array('currency', $storeColumns, true)) {
+                $storeInsert['currency'] = 'EGP';
+            }
+
+            if (in_array('timezone', $storeColumns, true)) {
+                $storeInsert['timezone'] = 'Africa/Cairo';
             }
 
             if (in_array('status', $storeColumns, true)) {
@@ -320,12 +344,14 @@ if (!$merchant) {
             'merchant' => [
                 'id' => $merchant->id,
                 'name' => $merchant->name ?? null,
+                'company_name' => $merchant->company_name ?? null,
             ],
             'store' => [
                 'id' => $store->id,
                 'merchant_id' => $store->merchant_id ?? null,
                 'name' => $store->name ?? null,
                 'base_url' => $store->base_url ?? null,
+                'base_url_hash' => $store->base_url_hash ?? null,
             ],
         ]);
 
@@ -345,11 +371,6 @@ if (!$merchant) {
 |--------------------------------------------------------------------------
 | Temporary dashboard bootstrap route
 |--------------------------------------------------------------------------
-| افتح بعد تشغيل migrations وبعد seed:
-| https://lammah-saas-production.up.railway.app/api/ops/bootstrap-dashboard/lammah-temp-2026
-|
-| مهم:
-| احذف هذا الـ Route بعد استخراج القيم.
 */
 
 Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
@@ -539,12 +560,14 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'merchant' => [
                     'id' => $merchant->id,
                     'name' => $merchant->name ?? null,
+                    'company_name' => $merchant->company_name ?? null,
                 ],
                 'store' => [
                     'id' => $store->id,
                     'merchant_id' => $store->merchant_id ?? null,
                     'name' => $store->name ?? null,
                     'base_url' => $store->base_url ?? null,
+                    'base_url_hash' => $store->base_url_hash ?? null,
                 ],
             ],
 
