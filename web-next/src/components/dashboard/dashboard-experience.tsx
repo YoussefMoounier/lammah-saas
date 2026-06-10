@@ -158,7 +158,31 @@ export function DashboardExperience() {
     const normalized = { ...connection, storeId }
     setConnection(normalized)
     saveConnectionSettings(normalized)
+    setActiveSection('overview')
+    setStatus('جاري فتح المتجر')
     void loadStoreData(normalized).catch((error) => setStatus(readableError(error)))
+  }
+
+  async function syncStore(storeId: string) {
+    if (!hasMerchantConnection(connection)) {
+      setStatus('أكمل بيانات الاتصال قبل المزامنة')
+      return
+    }
+
+    const normalized = { ...connection, storeId }
+    setConnection(normalized)
+    saveConnectionSettings(normalized)
+    setBusy(true)
+
+    try {
+      await lammahApi.syncStore(normalized.merchantId, storeId, toApiContext(normalized))
+      setStatus('تم إرسال المزامنة للخلفية. انتظر دقيقة ثم اضغط تحديث')
+      await loadWorkspace(normalized)
+    } catch (error) {
+      setStatus(readableError(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function addStore() {
@@ -248,7 +272,7 @@ export function DashboardExperience() {
 
       {activeSection === 'stores' && (
         <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} onSelect={selectStore} onSync={(storeId) => runAction((settings) => lammahApi.syncStore(settings.merchantId, storeId, toApiContext(settings)), 'تم إرسال المزامنة للخلفية')} />
+          <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} onSelect={selectStore} onSync={syncStore} />
           <StoreFormPanel busy={busy} form={storeForm} result={connectionResult} onChange={updateStoreForm} onSubmit={addStore} />
         </section>
       )}
