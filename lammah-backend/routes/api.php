@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class)
     ->name('webhooks.woocommerce.store');
@@ -65,16 +66,16 @@ Route::get('/ops/run-migrations/{secret}', function (string $secret) {
 
 /*
 |--------------------------------------------------------------------------
-| Temporary dashboard bootstrap route
+| Temporary merchant + store seed route
 |--------------------------------------------------------------------------
-| افتح بعد تشغيل migrations:
-| https://lammah-saas-production.up.railway.app/api/ops/bootstrap-dashboard/lammah-temp-2026
+| افتح بعد الـ Deploy:
+| https://lammah-saas-production.up.railway.app/api/ops/seed-merchant-store/lammah-temp-2026
 |
 | مهم:
-| احذف هذا الـ Route بعد استخراج القيم.
+| احذف هذا الـ Route بعد إنشاء Merchant و Store.
 */
 
-Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
+Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
     $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
 
     if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
@@ -86,12 +87,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
     }
 
     try {
-        /*
-        |--------------------------------------------------------------------------
-        | Read Railway environment variables
-        |--------------------------------------------------------------------------
-        */
-
         $env = function (string $key, mixed $default = null) {
             $value = getenv($key);
 
@@ -101,12 +96,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
             return env($key, $default);
         };
-
-        /*
-        |--------------------------------------------------------------------------
-        | Force PostgreSQL / Supabase connection
-        |--------------------------------------------------------------------------
-        */
 
         config([
             'database.default' => 'pgsql',
@@ -127,11 +116,259 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
         DB::purge('pgsql');
         DB::reconnect('pgsql');
 
+        $user = User::firstOrCreate(
+            ['email' => $env('BOOTSTRAP_ADMIN_EMAIL', 'admin@lammah.local')],
+            [
+                'name' => $env('BOOTSTRAP_ADMIN_NAME', 'Admin'),
+                'password' => Hash::make($env('BOOTSTRAP_ADMIN_PASSWORD', 'change-this-password')),
+            ]
+        );
+
+        $merchantColumns = Schema::connection('pgsql')->getColumnListing('merchants');
+        $storeColumns = Schema::connection('pgsql')->getColumnListing('woocommerce_stores');
+        $pivotColumns = Schema::connection('pgsql')->getColumnListing('merchant_user');
+
         /*
         |--------------------------------------------------------------------------
-        | Verify DB driver
+        | Create Merchant if missing
         |--------------------------------------------------------------------------
         */
+
+        $merchant = DB::table('merchants')->first();
+
+        if (!$merchant) {
+            $merchantId = (string) Str::ulid();
+
+            $merchantInsert = [];
+
+            if (in_array('id', $merchantColumns, true)) {
+                $merchantInsert['id'] = $merchantId;
+            }
+
+            if (in_array('name', $merchantColumns, true)) {
+                $merchantInsert['name'] = 'Lammah Test Merchant';
+            }
+
+            if (in_array('slug', $merchantColumns, true)) {
+                $merchantInsert['slug'] = 'lammah-test-merchant';
+            }
+
+            if (in_array('email', $merchantColumns, true)) {
+                $merchantInsert['email'] = $user->email;
+            }
+
+            if (in_array('user_id', $merchantColumns, true)) {
+                $merchantInsert['user_id'] = $user->id;
+            }
+
+            if (in_array('owner_id', $merchantColumns, true)) {
+                $merchantInsert['owner_id'] = $user->id;
+            }
+
+            if (in_array('owner_user_id', $merchantColumns, true)) {
+                $merchantInsert['owner_user_id'] = $user->id;
+            }
+
+            if (in_array('status', $merchantColumns, true)) {
+                $merchantInsert['status'] = 'active';
+            }
+
+            if (in_array('created_at', $merchantColumns, true)) {
+                $merchantInsert['created_at'] = now();
+            }
+
+            if (in_array('updated_at', $merchantColumns, true)) {
+                $merchantInsert['updated_at'] = now();
+            }
+
+            DB::table('merchants')->insert($merchantInsert);
+
+            $merchant = DB::table('merchants')->where('id', $merchantId)->first();
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Link User to Merchant if merchant_user exists
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            in_array('merchant_id', $pivotColumns, true) &&
+            in_array('user_id', $pivotColumns, true)
+        ) {
+            $exists = DB::table('merchant_user')
+                ->where('merchant_id', $merchant->id)
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$exists) {
+                $pivotInsert = [
+                    'merchant_id' => $merchant->id,
+                    'user_id' => $user->id,
+                ];
+
+                if (in_array('created_at', $pivotColumns, true)) {
+                    $pivotInsert['created_at'] = now();
+                }
+
+                if (in_array('updated_at', $pivotColumns, true)) {
+                    $pivotInsert['updated_at'] = now();
+                }
+
+                DB::table('merchant_user')->insert($pivotInsert);
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create WooCommerce Store if missing
+        |--------------------------------------------------------------------------
+        */
+
+        $storeQuery = DB::table('woocommerce_stores');
+
+        if (in_array('merchant_id', $storeColumns, true)) {
+            $storeQuery->where('merchant_id', $merchant->id);
+        }
+
+        $store = $storeQuery->first();
+
+        if (!$store) {
+            $storeId = (string) Str::ulid();
+
+            $storeInsert = [];
+
+            if (in_array('id', $storeColumns, true)) {
+                $storeInsert['id'] = $storeId;
+            }
+
+            if (in_array('merchant_id', $storeColumns, true)) {
+                $storeInsert['merchant_id'] = $merchant->id;
+            }
+
+            if (in_array('name', $storeColumns, true)) {
+                $storeInsert['name'] = 'Demo WooCommerce Store';
+            }
+
+            if (in_array('base_url', $storeColumns, true)) {
+                $storeInsert['base_url'] = 'https://example.com';
+            }
+
+            if (in_array('url', $storeColumns, true)) {
+                $storeInsert['url'] = 'https://example.com';
+            }
+
+            if (in_array('store_url', $storeColumns, true)) {
+                $storeInsert['store_url'] = 'https://example.com';
+            }
+
+            if (in_array('consumer_key', $storeColumns, true)) {
+                $storeInsert['consumer_key'] = 'ck_demo';
+            }
+
+            if (in_array('consumer_secret', $storeColumns, true)) {
+                $storeInsert['consumer_secret'] = 'cs_demo';
+            }
+
+            if (in_array('status', $storeColumns, true)) {
+                $storeInsert['status'] = 'active';
+            }
+
+            if (in_array('created_at', $storeColumns, true)) {
+                $storeInsert['created_at'] = now();
+            }
+
+            if (in_array('updated_at', $storeColumns, true)) {
+                $storeInsert['updated_at'] = now();
+            }
+
+            DB::table('woocommerce_stores')->insert($storeInsert);
+
+            $store = DB::table('woocommerce_stores')->where('id', $storeId)->first();
+        }
+
+        return response()->json([
+            'ok' => true,
+            'stage' => 'merchant_store_seeded',
+            'user' => [
+                'id' => $user->id,
+                'email' => $user->email,
+            ],
+            'merchant' => [
+                'id' => $merchant->id,
+                'name' => $merchant->name ?? null,
+            ],
+            'store' => [
+                'id' => $store->id,
+                'merchant_id' => $store->merchant_id ?? null,
+                'name' => $store->name ?? null,
+                'base_url' => $store->base_url ?? null,
+            ],
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'seed_exception',
+            'error_class' => get_class($e),
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| Temporary dashboard bootstrap route
+|--------------------------------------------------------------------------
+| افتح بعد تشغيل migrations وبعد seed:
+| https://lammah-saas-production.up.railway.app/api/ops/bootstrap-dashboard/lammah-temp-2026
+|
+| مهم:
+| احذف هذا الـ Route بعد استخراج القيم.
+*/
+
+Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
+    $expectedSecret = getenv('BOOTSTRAP_SECRET') ?: env('BOOTSTRAP_SECRET');
+
+    if (!$expectedSecret || !hash_equals($expectedSecret, $secret)) {
+        return response()->json([
+            'ok' => false,
+            'stage' => 'invalid_secret',
+            'message' => 'Invalid bootstrap secret.',
+        ], 403);
+    }
+
+    try {
+        $env = function (string $key, mixed $default = null) {
+            $value = getenv($key);
+
+            if ($value !== false && $value !== '') {
+                return $value;
+            }
+
+            return env($key, $default);
+        };
+
+        config([
+            'database.default' => 'pgsql',
+
+            'database.connections.pgsql.driver' => 'pgsql',
+            'database.connections.pgsql.host' => $env('DB_HOST'),
+            'database.connections.pgsql.port' => $env('DB_PORT', 5432),
+            'database.connections.pgsql.database' => $env('DB_DATABASE', 'postgres'),
+            'database.connections.pgsql.username' => $env('DB_USERNAME'),
+            'database.connections.pgsql.password' => $env('DB_PASSWORD'),
+            'database.connections.pgsql.charset' => 'utf8',
+            'database.connections.pgsql.prefix' => '',
+            'database.connections.pgsql.prefix_indexes' => true,
+            'database.connections.pgsql.search_path' => $env('DB_SCHEMA', 'public'),
+            'database.connections.pgsql.sslmode' => $env('DB_SSLMODE', 'require'),
+        ]);
+
+        DB::purge('pgsql');
+        DB::reconnect('pgsql');
 
         $driver = DB::connection()->getDriverName();
 
@@ -150,12 +387,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 current_user as database_user,
                 version() as postgres_version
         ");
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check required tables
-        |--------------------------------------------------------------------------
-        */
 
         $requiredTables = [
             'users',
@@ -183,12 +414,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             ], 500);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Create or get user
-        |--------------------------------------------------------------------------
-        */
-
         $user = User::firstOrCreate(
             ['email' => $env('BOOTSTRAP_ADMIN_EMAIL', 'admin@lammah.local')],
             [
@@ -196,14 +421,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'password' => Hash::make($env('BOOTSTRAP_ADMIN_PASSWORD', 'change-this-password')),
             ]
         );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Get Merchant ULID from merchants.id
-        |--------------------------------------------------------------------------
-        | مهم جدًا:
-        | Merchant ULID ليس user id.
-        */
 
         $merchant = DB::table('merchants')->first();
 
@@ -219,12 +436,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 ],
             ], 404);
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Get Store ULID from woocommerce_stores.id
-        |--------------------------------------------------------------------------
-        */
 
         $storeColumns = Schema::connection('pgsql')->getColumnListing('woocommerce_stores');
 
@@ -245,12 +456,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'db_info' => $dbInfo,
             ], 404);
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Link user to merchant if merchant_user columns exist
-        |--------------------------------------------------------------------------
-        */
 
         $pivotColumns = Schema::connection('pgsql')->getColumnListing('merchant_user');
 
@@ -280,12 +485,6 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 DB::table('merchant_user')->insert($pivotInsert);
             }
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create Sanctum token
-        |--------------------------------------------------------------------------
-        */
 
         $token = $user
             ->createToken('dashboard-token-' . now()->format('YmdHis'), ['*'])
