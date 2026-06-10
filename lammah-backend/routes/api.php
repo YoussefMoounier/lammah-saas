@@ -135,56 +135,79 @@ Route::get('/ops/seed-merchant-store/{secret}', function (string $secret) {
         */
 
         $merchant = DB::table('merchants')->first();
+if (!$merchant) {
+    $merchantId = (string) Str::ulid();
 
-        if (!$merchant) {
-            $merchantId = (string) Str::ulid();
+    $merchantInsert = [];
 
-            $merchantInsert = [];
+    if (in_array('id', $merchantColumns, true)) {
+        $merchantInsert['id'] = $merchantId;
+    }
 
-            if (in_array('id', $merchantColumns, true)) {
-                $merchantInsert['id'] = $merchantId;
-            }
+    if (in_array('name', $merchantColumns, true)) {
+        $merchantInsert['name'] = 'Lammah Test Merchant';
+    }
 
-            if (in_array('name', $merchantColumns, true)) {
-                $merchantInsert['name'] = 'Lammah Test Merchant';
-            }
+    if (in_array('company_name', $merchantColumns, true)) {
+        $merchantInsert['company_name'] = 'Lammah Test Company';
+    }
 
-            if (in_array('slug', $merchantColumns, true)) {
-                $merchantInsert['slug'] = 'lammah-test-merchant';
-            }
+    if (in_array('slug', $merchantColumns, true)) {
+        $merchantInsert['slug'] = 'lammah-test-merchant';
+    }
 
-            if (in_array('email', $merchantColumns, true)) {
-                $merchantInsert['email'] = $user->email;
-            }
+    if (in_array('email', $merchantColumns, true)) {
+        $merchantInsert['email'] = $user->email;
+    }
 
-            if (in_array('user_id', $merchantColumns, true)) {
-                $merchantInsert['user_id'] = $user->id;
-            }
+    if (in_array('contact_name', $merchantColumns, true)) {
+        $merchantInsert['contact_name'] = $user->name ?? 'Admin';
+    }
 
-            if (in_array('owner_id', $merchantColumns, true)) {
-                $merchantInsert['owner_id'] = $user->id;
-            }
+    if (in_array('phone', $merchantColumns, true)) {
+        $merchantInsert['phone'] = '+201000000000';
+    }
 
-            if (in_array('owner_user_id', $merchantColumns, true)) {
-                $merchantInsert['owner_user_id'] = $user->id;
-            }
+    if (in_array('country', $merchantColumns, true)) {
+        $merchantInsert['country'] = 'EG';
+    }
 
-            if (in_array('status', $merchantColumns, true)) {
-                $merchantInsert['status'] = 'active';
-            }
+    if (in_array('currency', $merchantColumns, true)) {
+        $merchantInsert['currency'] = 'EGP';
+    }
 
-            if (in_array('created_at', $merchantColumns, true)) {
-                $merchantInsert['created_at'] = now();
-            }
+    if (in_array('timezone', $merchantColumns, true)) {
+        $merchantInsert['timezone'] = 'Africa/Cairo';
+    }
 
-            if (in_array('updated_at', $merchantColumns, true)) {
-                $merchantInsert['updated_at'] = now();
-            }
+    if (in_array('user_id', $merchantColumns, true)) {
+        $merchantInsert['user_id'] = $user->id;
+    }
 
-            DB::table('merchants')->insert($merchantInsert);
+    if (in_array('owner_id', $merchantColumns, true)) {
+        $merchantInsert['owner_id'] = $user->id;
+    }
 
-            $merchant = DB::table('merchants')->where('id', $merchantId)->first();
-        }
+    if (in_array('owner_user_id', $merchantColumns, true)) {
+        $merchantInsert['owner_user_id'] = $user->id;
+    }
+
+    if (in_array('status', $merchantColumns, true)) {
+        $merchantInsert['status'] = 'active';
+    }
+
+    if (in_array('created_at', $merchantColumns, true)) {
+        $merchantInsert['created_at'] = now();
+    }
+
+    if (in_array('updated_at', $merchantColumns, true)) {
+        $merchantInsert['updated_at'] = now();
+    }
+
+    DB::table('merchants')->insert($merchantInsert);
+
+    $merchant = DB::table('merchants')->where('id', $merchantId)->first();
+}
 
         /*
         |--------------------------------------------------------------------------
