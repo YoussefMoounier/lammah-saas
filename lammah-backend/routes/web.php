@@ -1,23 +1,20 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
-Route::get('/', function () {
-    return view('welcome');
-});
-
-
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 
+Route::get('/', function () {
+    return view('welcome');
+});
+
 Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
     /*
     |--------------------------------------------------------------------------
-    | حماية الرابط
+    | 1) حماية الرابط
     |--------------------------------------------------------------------------
     */
 
@@ -30,7 +27,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
     try {
         /*
         |--------------------------------------------------------------------------
-        | إجبار Laravel يستخدم pgsql
+        | 2) قراءة Environment Variables من Railway
         |--------------------------------------------------------------------------
         */
 
@@ -43,6 +40,12 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
             return env($key, $default);
         };
+
+        /*
+        |--------------------------------------------------------------------------
+        | 3) إجبار Laravel يستخدم pgsql / Supabase
+        |--------------------------------------------------------------------------
+        */
 
         config([
             'database.default' => 'pgsql',
@@ -65,7 +68,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | اختبار الاتصال
+        | 4) اختبار الاتصال بقاعدة البيانات
         |--------------------------------------------------------------------------
         */
 
@@ -74,7 +77,8 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
         if ($driver !== 'pgsql') {
             return response()->json([
                 'ok' => false,
-                'error' => 'Laravel is not using pgsql.',
+                'stage' => 'driver_check',
+                'message' => 'Laravel is not using pgsql.',
                 'detected_driver' => $driver,
             ], 500);
         }
@@ -88,7 +92,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | التأكد من الجداول
+        | 5) التأكد من وجود الجداول المطلوبة
         |--------------------------------------------------------------------------
         */
 
@@ -112,7 +116,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
             return response()->json([
                 'ok' => false,
                 'stage' => 'missing_tables',
-                'message' => 'الجداول دي مش موجودة في Supabase. غالبًا migrations ما اتعملتش.',
+                'message' => 'الجداول دي مش موجودة في Supabase. غالبًا migrations ما اتعملتش على Supabase.',
                 'missing_tables' => $missingTables,
                 'db_info' => $dbInfo,
             ], 500);
@@ -120,7 +124,7 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | إنشاء أو جلب User
+        | 6) إنشاء أو جلب User
         |--------------------------------------------------------------------------
         */
 
@@ -134,13 +138,12 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | جلب Merchant ULID الصحيح من merchants.id
+        | 7) جلب Merchant ULID الصحيح من جدول merchants
         |--------------------------------------------------------------------------
+        | مهم: Merchant ULID ليس هو User ID.
         */
 
-        $merchant = DB::table('merchants')
-            ->orderBy('created_at')
-            ->first();
+        $merchant = DB::table('merchants')->first();
 
         if (!$merchant) {
             return response()->json([
@@ -153,20 +156,25 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | جلب Store ULID الصحيح من woocommerce_stores.id
+        | 8) جلب Store ULID الصحيح من جدول woocommerce_stores
         |--------------------------------------------------------------------------
         */
 
-        $store = DB::table('woocommerce_stores')
-            ->where('merchant_id', $merchant->id)
-            ->orderBy('created_at')
-            ->first();
+        $storeColumns = Schema::connection('pgsql')->getColumnListing('woocommerce_stores');
+
+        $storeQuery = DB::table('woocommerce_stores');
+
+        if (in_array('merchant_id', $storeColumns, true)) {
+            $storeQuery->where('merchant_id', $merchant->id);
+        }
+
+        $store = $storeQuery->first();
 
         if (!$store) {
             return response()->json([
                 'ok' => false,
                 'stage' => 'no_store',
-                'message' => 'جدول woocommerce_stores موجود لكنه مفيهوش Store لهذا الـ Merchant.',
+                'message' => 'جدول woocommerce_stores موجود لكنه فاضي أو مفيهوش Store مربوط بهذا الـ Merchant.',
                 'merchant_ulid' => $merchant->id,
                 'db_info' => $dbInfo,
             ], 404);
@@ -174,13 +182,54 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
 
         /*
         |--------------------------------------------------------------------------
-        | إنشاء Sanctum Token
+        | 9) ربط المستخدم بالـ Merchant داخل merchant_user لو الأعمدة موجودة
+        |--------------------------------------------------------------------------
+        */
+
+        $pivotColumns = Schema::connection('pgsql')->getColumnListing('merchant_user');
+
+        if (
+            in_array('merchant_id', $pivotColumns, true) &&
+            in_array('user_id', $pivotColumns, true)
+        ) {
+            $alreadyLinked = DB::table('merchant_user')
+                ->where('merchant_id', $merchant->id)
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$alreadyLinked) {
+                $pivotInsert = [
+                    'merchant_id' => $merchant->id,
+                    'user_id' => $user->id,
+                ];
+
+                if (in_array('created_at', $pivotColumns, true)) {
+                    $pivotInsert['created_at'] = now();
+                }
+
+                if (in_array('updated_at', $pivotColumns, true)) {
+                    $pivotInsert['updated_at'] = now();
+                }
+
+                DB::table('merchant_user')->insert($pivotInsert);
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 10) إنشاء Sanctum Token
         |--------------------------------------------------------------------------
         */
 
         $token = $user
             ->createToken('dashboard-token-' . now()->format('YmdHis'))
             ->plainTextToken;
+
+        /*
+        |--------------------------------------------------------------------------
+        | 11) إخراج البيانات المطلوبة للـ Frontend
+        |--------------------------------------------------------------------------
+        */
 
         return response()->json([
             'ok' => true,
@@ -199,6 +248,25 @@ Route::get('/ops/bootstrap-dashboard/{secret}', function (string $secret) {
                 'store_ulid_source' => 'woocommerce_stores.id',
                 'important_note' => 'MERCHANT_ULID is not user id.',
             ],
+
+            'records' => [
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                ],
+                'merchant' => [
+                    'id' => $merchant->id,
+                    'name' => $merchant->name ?? null,
+                ],
+                'store' => [
+                    'id' => $store->id,
+                    'merchant_id' => $store->merchant_id ?? null,
+                    'name' => $store->name ?? null,
+                    'base_url' => $store->base_url ?? null,
+                ],
+            ],
+
+            'security_warning' => 'انسخ القيم المطلوبة ثم احذف هذا الـ Route أو غيّر BOOTSTRAP_SECRET فورًا.',
         ]);
 
     } catch (\Throwable $e) {
