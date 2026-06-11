@@ -78,6 +78,7 @@ class WooCommerceStoreController extends Controller
         }
 
         if ((bool) ($validated['sync_now'] ?? false)) {
+            $this->markSyncQueued($store, ['categories', 'products', 'orders']);
             SyncWooCommerceStoreJob::dispatch($store->id, ['categories', 'products', 'orders']);
         }
 
@@ -109,14 +110,23 @@ class WooCommerceStoreController extends Controller
         $resources = $validated['resources'] ?? ['categories', 'products', 'orders'];
 
         if ((bool) ($validated['queued'] ?? true)) {
+            $this->markSyncQueued($storeModel, $resources);
             SyncWooCommerceStoreJob::dispatch($storeModel->id, $resources);
 
-            return response()->json(['accepted' => true, 'queued' => true], 202);
+            return response()->json([
+                'accepted' => true,
+                'queued' => true,
+                'data' => new WooCommerceStoreResource($storeModel->refresh()),
+            ], 202);
         }
 
         SyncWooCommerceStoreJob::dispatchSync($storeModel->id, $resources);
 
-        return response()->json(['accepted' => true, 'queued' => false]);
+        return response()->json([
+            'accepted' => true,
+            'queued' => false,
+            'data' => new WooCommerceStoreResource($storeModel->refresh()),
+        ]);
     }
 
     private function normalizeBaseUrl(string $baseUrl): string
@@ -127,5 +137,17 @@ class WooCommerceStoreController extends Controller
     private function hashBaseUrl(string $baseUrl): string
     {
         return hash('sha256', strtolower($baseUrl));
+    }
+
+    private function markSyncQueued(WooCommerceStore $store, array $resources): void
+    {
+        $store->forceFill([
+            'last_error' => null,
+            'sync_settings' => array_merge($store->sync_settings ?? [], [
+                'sync_state' => 'queued',
+                'sync_requested_at' => now()->toIso8601String(),
+                'sync_resources' => array_values($resources),
+            ]),
+        ])->save();
     }
 }

@@ -37,7 +37,7 @@ const emptyStoreForm: WooCommerceStorePayload = {
   consumer_secret: '',
   currency: 'SAR',
   timezone: 'Asia/Riyadh',
-  test_connection: true,
+  test_connection: false,
   sync_now: true
 }
 
@@ -173,6 +173,14 @@ export function DashboardExperience() {
     setShifts([])
   }
 
+  function updateStoreInState(nextStore: WooCommerceStore) {
+    setStores((current) => {
+      const exists = current.some((store) => store.id === nextStore.id)
+
+      return exists ? current.map((store) => (store.id === nextStore.id ? nextStore : store)) : [nextStore, ...current]
+    })
+  }
+
   function updateConnection(key: keyof ConnectionSettings, value: string) {
     setConnection((current) => ({ ...current, [key]: value }))
   }
@@ -209,13 +217,14 @@ export function DashboardExperience() {
     setBusy(true)
 
     try {
-      await lammahApi.syncStore(normalized.merchantId, storeId, toApiContext(normalized))
-      setStatus('تم إرسال المزامنة للخلفية. انتظر دقيقة ثم اضغط تحديث')
-      try {
-        await loadStoreData(normalized)
-      } catch (reloadError) {
-        setStatus(`تم إرسال المزامنة، لكن تحديث العرض فشل: ${readableError(reloadError)}`)
+      setStatus('جاري إرسال طلب المزامنة إلى Railway...')
+      const response = await lammahApi.syncStore(normalized.merchantId, storeId, toApiContext(normalized))
+
+      if (response.data) {
+        updateStoreInState(response.data)
       }
+
+      setStatus(response.queued ? 'تم وضع المزامنة في الطابور. سيبدأ العامل خلال لحظات، اضغط تحديث لمتابعة الحالة.' : 'تم تنفيذ المزامنة.')
     } catch (error) {
       setStatus(readableError(error))
     } finally {
@@ -243,10 +252,10 @@ export function DashboardExperience() {
       setConnectionResult(response.connection ?? null)
       setStoreForm(emptyStoreForm)
       setConnection(normalized)
+      updateStoreInState(nextStore)
       saveConnectionSettings(normalized)
       setActiveSection('overview')
-      setStatus(response.connection?.ok ? 'تم ربط المتجر وتشغيل المزامنة' : response.connection?.error ?? 'تم حفظ المتجر')
-      await loadWorkspace(normalized)
+      setStatus(response.sync_queued ? 'تم حفظ المتجر بسرعة ووضع المزامنة في الطابور.' : response.connection?.error ?? 'تم حفظ المتجر')
     } catch (error) {
       setStatus(readableError(error))
     } finally {
@@ -292,7 +301,7 @@ export function DashboardExperience() {
         <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
           <div className="min-w-0 grid gap-4">
             {!selectedStore && <EmptyStorePrompt onClick={() => setActiveSection('stores')} />}
-            <StoreSummaryCard store={selectedStore} onSync={() => runAction((settings) => lammahApi.syncStore(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم إرسال المزامنة للخلفية')} />
+            <StoreSummaryCard store={selectedStore} busy={busy} onSync={() => syncStore(connection.storeId)} />
             <ForecastsPanel forecasts={forecasts} />
             <ProfitsPanel profits={profits} />
           </div>
@@ -452,20 +461,27 @@ function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores
         {stores.length === 0 && <div className="rounded-md border border-dashed border-white/15 p-6 text-center text-sm text-slate-400">لا يوجد متاجر بعد. أضف أول متجر من النموذج.</div>}
         {stores.map((store) => (
           <article key={store.id} className={`rounded-md border p-4 ${selectedStoreId === store.id ? 'border-teal-300/45 bg-teal-300/10' : 'border-white/10 bg-white/5'}`}>
+            {(() => {
+              const syncState = store.sync_settings?.sync_state
+
+              return (
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="font-semibold text-white">{store.name}</h3>
                 <p className="mt-1 break-all text-sm text-slate-400">{store.base_url}</p>
+                {syncState && <p className="mt-1 text-xs text-slate-500">حالة المزامنة: {translateSyncState(syncState)}</p>}
               </div>
               <StatusBadge value={store.status} />
             </div>
+              )
+            })()}
             {store.last_error && <p className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/10 p-2 text-xs text-rose-100">{store.last_error}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-sm text-teal-100" onClick={() => onSelect(store.id)}>
                 اختيار المتجر
               </button>
-              <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy} onClick={() => onSync(store.id)}>
-                مزامنة الآن
+              <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy || store.sync_settings?.sync_state === 'queued' || store.sync_settings?.sync_state === 'running'} onClick={() => onSync(store.id)}>
+                {store.sync_settings?.sync_state === 'queued' || store.sync_settings?.sync_state === 'running' ? 'قيد المزامنة' : 'مزامنة الآن'}
               </button>
             </div>
           </article>
@@ -475,8 +491,10 @@ function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores
   )
 }
 
-function StoreSummaryCard({ store, onSync }: { store: WooCommerceStore | null; onSync: () => void }) {
+function StoreSummaryCard({ store, busy, onSync }: { store: WooCommerceStore | null; busy: boolean; onSync: () => void }) {
   if (!store) return null
+
+  const syncState = store.sync_settings?.sync_state
 
   return (
     <section className="glass-panel rounded-md p-4">
@@ -488,10 +506,11 @@ function StoreSummaryCard({ store, onSync }: { store: WooCommerceStore | null; o
           <div>
             <h2 className="text-base font-semibold">{store.name}</h2>
             <p className="break-all text-sm text-slate-400">{store.base_url}</p>
+            {syncState && <p className="mt-1 text-xs text-slate-500">حالة المزامنة: {translateSyncState(syncState)}</p>}
           </div>
         </div>
-        <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200" onClick={onSync}>
-          مزامنة
+        <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy || syncState === 'queued' || syncState === 'running'} onClick={onSync}>
+          {syncState === 'queued' || syncState === 'running' ? 'المزامنة تعمل' : 'مزامنة'}
         </button>
       </div>
     </section>
@@ -782,6 +801,17 @@ function translateStatus(value: string) {
     processing: 'قيد المعالجة',
     completed: 'مكتمل',
     failed: 'فشل'
+  }
+
+  return map[value] ?? value
+}
+
+function translateSyncState(value: string) {
+  const map: Record<string, string> = {
+    queued: 'في الطابور',
+    running: 'جاري السحب من WooCommerce',
+    succeeded: 'اكتملت بنجاح',
+    failed: 'فشلت وتحتاج مراجعة'
   }
 
   return map[value] ?? value

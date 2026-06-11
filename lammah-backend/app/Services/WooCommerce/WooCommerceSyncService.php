@@ -29,6 +29,12 @@ class WooCommerceSyncService
         $totals = [];
 
         try {
+            $this->updateStoreSyncSettings($store, [
+                'sync_state' => 'running',
+                'sync_started_at' => now()->toIso8601String(),
+                'sync_resources' => array_values($resources),
+            ]);
+
             foreach ($resources as $resource) {
                 $totals[$resource] = $this->syncResource($store, $resource);
             }
@@ -37,6 +43,11 @@ class WooCommerceSyncService
             $store->forceFill([
                 'last_successful_sync_at' => now(),
                 'last_error' => null,
+                'sync_settings' => array_merge($store->sync_settings ?? [], [
+                    'sync_state' => 'succeeded',
+                    'sync_finished_at' => now()->toIso8601String(),
+                    'sync_totals' => $totals,
+                ]),
             ])->save();
 
             return $totals;
@@ -45,6 +56,11 @@ class WooCommerceSyncService
             $store->forceFill([
                 'last_failed_sync_at' => now(),
                 'last_error' => $exception->getMessage(),
+                'sync_settings' => array_merge($store->sync_settings ?? [], [
+                    'sync_state' => 'failed',
+                    'sync_finished_at' => now()->toIso8601String(),
+                    'sync_totals' => $totals,
+                ]),
             ])->save();
 
             throw $exception;
@@ -195,5 +211,14 @@ class WooCommerceSyncService
         if (! in_array($resource, self::RESOURCES, true)) {
             throw new \InvalidArgumentException("Unsupported WooCommerce resource [{$resource}].");
         }
+    }
+
+    private function updateStoreSyncSettings(WooCommerceStore $store, array $settings): void
+    {
+        $store->forceFill([
+            'sync_settings' => array_merge($store->sync_settings ?? [], $settings),
+        ])->save();
+
+        $store->refresh();
     }
 }

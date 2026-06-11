@@ -11,7 +11,8 @@ import type {
   WooCommerceConnectionResult,
   WooCommerceStore,
   WooCommerceStorePayload,
-  WooCommerceStoreResponse
+  WooCommerceStoreResponse,
+  WooCommerceSyncResponse
 } from './types'
 
 const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_LAMMAH_API_BASE_URL ?? 'http://localhost:8000'
@@ -24,6 +25,7 @@ type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH'
   body?: unknown
   query?: Record<string, string | number | boolean | undefined>
+  timeoutMs?: number
 }
 
 export function readBearerToken() {
@@ -70,9 +72,13 @@ async function apiFetch<T>(path: string, options: RequestOptions): Promise<T> {
 
   let response: Response
 
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 15000)
+
   try {
     response = await fetch(url, {
       method: options.method ?? 'GET',
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -80,8 +86,14 @@ async function apiFetch<T>(path: string, options: RequestOptions): Promise<T> {
       },
       body: options.body ? JSON.stringify(options.body) : undefined
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`الطلب أخذ وقتًا أطول من المتوقع. Railway أو WooCommerce بطيء الآن، جرّب التحديث بعد لحظات.`)
+    }
+
     throw new Error(`تعذر الوصول إلى ${url.origin}. تأكد من رابط Railway وإعدادات CORS ثم أعد النشر.`)
+  } finally {
+    window.clearTimeout(timeoutId)
   }
 
   if (!response.ok) {
@@ -134,10 +146,11 @@ export const lammahApi = {
     }),
 
   syncStore: (merchantId: string, storeId: string, context: ApiContext) =>
-    apiFetch<{ accepted: boolean; queued: boolean }>(`/merchants/${merchantId}/stores/${storeId}/sync`, {
+    apiFetch<WooCommerceSyncResponse>(`/merchants/${merchantId}/stores/${storeId}/sync`, {
       token: context.token,
       baseUrl: context.apiBaseUrl,
       method: 'POST',
+      timeoutMs: 8000,
       body: { queued: true, resources: ['categories', 'products', 'orders'] }
     }),
 

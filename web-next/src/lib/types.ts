@@ -23,6 +23,14 @@ export type WooCommerceStore = {
   last_successful_sync_at: string | null
   last_failed_sync_at: string | null
   last_error: string | null
+  sync_settings?: {
+    sync_state?: 'queued' | 'running' | 'succeeded' | 'failed' | string
+    sync_requested_at?: string
+    sync_started_at?: string
+    sync_finished_at?: string
+    sync_resources?: string[]
+    sync_totals?: Record<string, number>
+  }
   created_at: string | null
   updated_at: string | null
 }
@@ -50,6 +58,12 @@ export type WooCommerceStoreResponse = {
   data: WooCommerceStore
   connection?: WooCommerceConnectionResult | null
   sync_queued?: boolean
+}
+
+export type WooCommerceSyncResponse = {
+  accepted: boolean
+  queued: boolean
+  data?: WooCommerceStore
 }
 
 export type DashboardSummary = {
