@@ -56,6 +56,7 @@ export function DashboardExperience() {
   const [busy, setBusy] = useState(false)
   const [liveMode, setLiveMode] = useState(false)
   const [connectionResult, setConnectionResult] = useState<WooCommerceConnectionResult | null>(null)
+  const [connectorToken, setConnectorToken] = useState<{ storeId: string; value: string } | null>(null)
   const [status, setStatus] = useState('اكتب رابط API والتوكن ومعرف التاجر، ثم اضغط اتصال')
 
   const apiContext = useMemo(() => ({ apiBaseUrl: connection.apiBaseUrl, token: connection.token }), [connection.apiBaseUrl, connection.token])
@@ -233,6 +234,27 @@ export function DashboardExperience() {
     }
   }
 
+  async function generateConnectorToken(storeId: string) {
+    if (!hasMerchantConnection(connection)) {
+      setStatus('أكمل بيانات الاتصال قبل توليد توكن الإضافة')
+      return
+    }
+
+    setBusy(true)
+
+    try {
+      setStatus('جاري توليد توكن WordPress Connector...')
+      const response = await lammahApi.generateConnectorToken(connection.merchantId, storeId, toApiContext(connection))
+      updateStoreInState(response.data)
+      setConnectorToken({ storeId, value: response.connector_token })
+      setStatus('تم توليد التوكن. انسخه الآن داخل إضافة WordPress، لن يظهر مرة أخرى.')
+    } catch (error) {
+      setStatus(readableError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function addStore() {
     if (!hasMerchantConnection(connection)) {
       setStatus('أكمل بيانات الاتصال قبل إضافة متجر')
@@ -302,7 +324,7 @@ export function DashboardExperience() {
         <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
           <div className="min-w-0 grid gap-4">
             {!selectedStore && <EmptyStorePrompt onClick={() => setActiveSection('stores')} />}
-            <StoreSummaryCard store={selectedStore} busy={busy} onSync={() => syncStore(connection.storeId)} />
+            <StoreSummaryCard store={selectedStore} busy={busy} connectorToken={connectorToken} onGenerateToken={generateConnectorToken} onSync={() => syncStore(connection.storeId)} />
             <ForecastsPanel forecasts={forecasts} />
             <ProfitsPanel profits={profits} />
           </div>
@@ -324,7 +346,7 @@ export function DashboardExperience() {
 
       {activeSection === 'stores' && (
         <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,420px)]">
-          <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} onSelect={selectStore} onSync={syncStore} />
+          <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} connectorToken={connectorToken} onGenerateToken={generateConnectorToken} onSelect={selectStore} onSync={syncStore} />
           <StoreFormPanel busy={busy} form={storeForm} result={connectionResult} onChange={updateStoreForm} onSubmit={addStore} />
         </section>
       )}
@@ -447,7 +469,25 @@ function StoreFormPanel({ busy, form, result, onChange, onSubmit }: { busy: bool
   )
 }
 
-function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores: WooCommerceStore[]; selectedStoreId: string; busy: boolean; onSelect: (storeId: string) => void; onSync: (storeId: string) => void }) {
+type ConnectorTokenState = { storeId: string; value: string } | null
+
+function StoreList({
+  stores,
+  selectedStoreId,
+  busy,
+  connectorToken,
+  onGenerateToken,
+  onSelect,
+  onSync
+}: {
+  stores: WooCommerceStore[]
+  selectedStoreId: string
+  busy: boolean
+  connectorToken: ConnectorTokenState
+  onGenerateToken: (storeId: string) => void
+  onSelect: (storeId: string) => void
+  onSync: (storeId: string) => void
+}) {
   return (
     <section className="glass-panel rounded-md p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -470,16 +510,22 @@ function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores
               <div className="min-w-0">
                 <h3 className="font-semibold text-white">{store.name}</h3>
                 <p className="mt-1 break-all text-sm text-slate-400">{store.base_url}</p>
+                <p className="mt-1 text-xs text-slate-500">WordPress Connector: {translateConnectorStatus(store.connector_status)}</p>
                 {syncState && <p className="mt-1 text-xs text-slate-500">حالة المزامنة: {translateSyncState(syncState)}</p>}
               </div>
               <StatusBadge value={store.status} />
             </div>
               )
             })()}
+            {connectorToken?.storeId === store.id && <ConnectorTokenBox token={connectorToken.value} />}
             {store.last_error && <p className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/10 p-2 text-xs text-rose-100">{store.last_error}</p>}
+            {store.connector_last_error && <p className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/10 p-2 text-xs text-amber-100">{store.connector_last_error}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-sm text-teal-100" onClick={() => onSelect(store.id)}>
                 اختيار المتجر
+              </button>
+              <button className="rounded-md border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-sm text-sky-100 disabled:opacity-50" disabled={busy} onClick={() => onGenerateToken(store.id)}>
+                {store.has_connector_token ? 'تدوير توكن الإضافة' : 'توليد توكن الإضافة'}
               </button>
               <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy || store.sync_settings?.sync_state === 'queued' || store.sync_settings?.sync_state === 'running'} onClick={() => onSync(store.id)}>
                 {store.sync_settings?.sync_state === 'queued' || store.sync_settings?.sync_state === 'running' ? 'قيد المزامنة' : 'مزامنة الآن'}
@@ -492,7 +538,19 @@ function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores
   )
 }
 
-function StoreSummaryCard({ store, busy, onSync }: { store: WooCommerceStore | null; busy: boolean; onSync: () => void }) {
+function StoreSummaryCard({
+  store,
+  busy,
+  connectorToken,
+  onGenerateToken,
+  onSync
+}: {
+  store: WooCommerceStore | null
+  busy: boolean
+  connectorToken: ConnectorTokenState
+  onGenerateToken: (storeId: string) => void
+  onSync: () => void
+}) {
   if (!store) return null
 
   const syncState = store.sync_settings?.sync_state
@@ -507,14 +565,31 @@ function StoreSummaryCard({ store, busy, onSync }: { store: WooCommerceStore | n
           <div>
             <h2 className="text-base font-semibold">{store.name}</h2>
             <p className="break-all text-sm text-slate-400">{store.base_url}</p>
+            <p className="mt-1 text-xs text-slate-500">WordPress Connector: {translateConnectorStatus(store.connector_status)}</p>
             {syncState && <p className="mt-1 text-xs text-slate-500">حالة المزامنة: {translateSyncState(syncState)}</p>}
           </div>
         </div>
-        <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy || syncState === 'queued' || syncState === 'running'} onClick={onSync}>
-          {syncState === 'queued' || syncState === 'running' ? 'المزامنة تعمل' : 'مزامنة'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="rounded-md border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-sm text-sky-100 disabled:opacity-50" disabled={busy} onClick={() => onGenerateToken(store.id)}>
+            {store.has_connector_token ? 'تدوير توكن الإضافة' : 'توليد توكن الإضافة'}
+          </button>
+          <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy || syncState === 'queued' || syncState === 'running'} onClick={onSync}>
+            {syncState === 'queued' || syncState === 'running' ? 'المزامنة تعمل' : 'مزامنة REST احتياطية'}
+          </button>
+        </div>
       </div>
+      {connectorToken?.storeId === store.id && <ConnectorTokenBox token={connectorToken.value} />}
     </section>
+  )
+}
+
+function ConnectorTokenBox({ token }: { token: string }) {
+  return (
+    <div className="mt-4 rounded-md border border-sky-300/25 bg-sky-300/10 p-3">
+      <p className="text-sm font-medium text-sky-100">انسخ هذا التوكن الآن داخل WordPress Connector</p>
+      <code className="mt-2 block break-all rounded-md border border-white/10 bg-black/30 p-3 text-xs text-slate-100">{token}</code>
+      <p className="mt-2 text-xs text-slate-400">لأمان الحساب، التوكن يظهر مرة واحدة فقط. لو ضاع، ولّد توكن جديد.</p>
+    </div>
   )
 }
 
@@ -813,6 +888,18 @@ function translateSyncState(value: string) {
     running: 'جاري السحب من WooCommerce',
     succeeded: 'اكتملت بنجاح',
     failed: 'فشلت وتحتاج مراجعة'
+  }
+
+  return map[value] ?? value
+}
+
+function translateConnectorStatus(value: string) {
+  const map: Record<string, string> = {
+    not_configured: 'لم يتم توليد التوكن بعد',
+    token_issued: 'تم توليد التوكن وينتظر الربط',
+    connected: 'متصل',
+    warning: 'متصل مع تحذير',
+    error: 'خطأ في الربط'
   }
 
   return map[value] ?? value

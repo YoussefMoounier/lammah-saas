@@ -1,5 +1,6 @@
 import type {
   ApiEnvelope,
+  ConnectorTokenResponse,
   ConnectionSettings,
   DashboardSummary,
   FraudSignal,
@@ -155,6 +156,14 @@ export const lammahApi = {
       method: 'POST',
       timeoutMs: 8000,
       body: { queued: true, resources: ['categories', 'products', 'orders'] }
+    }),
+
+  generateConnectorToken: (merchantId: string, storeId: string, context: ApiContext) =>
+    apiFetch<ConnectorTokenResponse>(`/merchants/${merchantId}/stores/${storeId}/connector-token`, {
+      token: context.token,
+      baseUrl: context.apiBaseUrl,
+      method: 'POST',
+      timeoutMs: 12000
     }),
 
   forecasts: (merchantId: string, storeId: string, context: ApiContext) =>

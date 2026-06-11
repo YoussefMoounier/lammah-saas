@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\BulkPriceUpdateController;
+use App\Http\Controllers\Api\V1\ConnectorIngestionController;
+use App\Http\Controllers\Api\V1\ConnectorTokenController;
 use App\Http\Controllers\Api\V1\DashboardSummaryController;
 use App\Http\Controllers\Api\V1\ForecastController;
 use App\Http\Controllers\Api\V1\FraudSignalController;
@@ -20,6 +22,20 @@ use Illuminate\Support\Str;
 
 Route::post('/webhooks/woocommerce/{store}', WooCommerceWebhookController::class)
     ->name('webhooks.woocommerce.store');
+
+Route::prefix('v1/connectors/stores/{store}')
+    ->group(function (): void {
+        Route::post('/handshake', [ConnectorIngestionController::class, 'handshake'])
+            ->name('api.v1.connectors.handshake');
+        Route::post('/bulk/products', [ConnectorIngestionController::class, 'products'])
+            ->name('api.v1.connectors.bulk.products');
+        Route::post('/bulk/customers', [ConnectorIngestionController::class, 'customers'])
+            ->name('api.v1.connectors.bulk.customers');
+        Route::post('/bulk/orders', [ConnectorIngestionController::class, 'orders'])
+            ->name('api.v1.connectors.bulk.orders');
+        Route::post('/events/order', [ConnectorIngestionController::class, 'orderEvent'])
+            ->name('api.v1.connectors.events.order');
+    });
 
 /*
 |--------------------------------------------------------------------------
@@ -643,6 +659,8 @@ Route::prefix('v1')
             ->name('api.v1.stores.test');
         Route::post('/merchants/{merchant}/stores/{store}/sync', [WooCommerceStoreController::class, 'sync'])
             ->name('api.v1.stores.sync');
+        Route::post('/merchants/{merchant}/stores/{store}/connector-token', ConnectorTokenController::class)
+            ->name('api.v1.stores.connector-token');
 
         Route::get('/merchants/{merchant}/stores/{store}/forecasts', [ForecastController::class, 'index'])
             ->name('api.v1.forecasts.index');

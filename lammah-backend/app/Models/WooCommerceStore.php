@@ -25,6 +25,7 @@ class WooCommerceStore extends Model
         'metadata' => 'array',
         'last_successful_sync_at' => 'datetime',
         'last_failed_sync_at' => 'datetime',
+        'connector_last_seen_at' => 'datetime',
     ];
 
     public function consumerKey(): string

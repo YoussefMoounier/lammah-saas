@@ -23,6 +23,11 @@ export type WooCommerceStore = {
   last_successful_sync_at: string | null
   last_failed_sync_at: string | null
   last_error: string | null
+  connector_status: 'not_configured' | 'token_issued' | 'connected' | 'warning' | 'error' | string
+  connector_last_seen_at: string | null
+  connector_version: string | null
+  connector_last_error: string | null
+  has_connector_token: boolean
   sync_settings?: {
     sync_state?: 'queued' | 'running' | 'succeeded' | 'failed' | string
     sync_requested_at?: string
@@ -58,6 +63,12 @@ export type WooCommerceStoreResponse = {
   data: WooCommerceStore
   connection?: WooCommerceConnectionResult | null
   sync_queued?: boolean
+}
+
+export type ConnectorTokenResponse = {
+  data: WooCommerceStore
+  connector_token: string
+  copy_once: boolean
 }
 
 export type WooCommerceSyncResponse = {
