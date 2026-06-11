@@ -72,6 +72,7 @@ class WooCommerceSyncService
         $this->assertSupportedResource($resource);
 
         $synced = 0;
+        $itemErrors = [];
         $pageNumber = $startPage;
         $maxPages = (int) config('lammah.woocommerce.max_pages_per_job', 25);
 
@@ -84,13 +85,28 @@ class WooCommerceSyncService
             );
 
             foreach ($page->items as $item) {
-                $syncedModel = $this->upsertResource($store, $resource, $item);
-                $this->dispatchPostSyncAnalytics($syncedModel);
-                $synced++;
+                try {
+                    $syncedModel = $this->upsertResource($store, $resource, $item);
+                    $this->dispatchPostSyncAnalytics($syncedModel);
+                    $synced++;
+                } catch (Throwable $exception) {
+                    $itemErrors[] = [
+                        'resource' => $resource,
+                        'woo_id' => Arr::get($item, 'id'),
+                        'message' => $exception->getMessage(),
+                    ];
+                }
             }
 
             $pageNumber++;
         } while ($page->hasNextPage() && ($pageNumber - $startPage) < $maxPages);
+
+        if ($itemErrors !== []) {
+            $this->updateStoreSyncSettings($store, [
+                'sync_item_errors' => array_slice($itemErrors, 0, 10),
+                'sync_item_error_count' => count($itemErrors),
+            ]);
+        }
 
         return $synced;
     }
@@ -183,7 +199,8 @@ class WooCommerceSyncService
     {
         return match ($resource) {
             'categories' => ['orderby' => 'id', 'order' => 'asc'],
-            'products', 'orders' => ['orderby' => 'date', 'order' => 'desc'],
+            'products' => ['orderby' => 'date', 'order' => 'desc', 'status' => 'any'],
+            'orders' => ['orderby' => 'date', 'order' => 'desc', 'status' => 'any'],
             'customers' => ['orderby' => 'registered_date', 'order' => 'desc'],
             default => [],
         };

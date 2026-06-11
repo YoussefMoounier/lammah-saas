@@ -28,6 +28,25 @@ class DashboardSummaryController extends Controller
         $days = (int) ($validated['days'] ?? 30);
         $since = now()->subDays($days);
 
+        if ($storeIds->isEmpty()) {
+            return response()->json([
+                'data' => [
+                    'period' => [
+                        'days' => $days,
+                        'starts_at' => $since->toIso8601String(),
+                        'ends_at' => now()->toIso8601String(),
+                    ],
+                    'gross_revenue' => 0,
+                    'net_profit' => 0,
+                    'open_fraud_signals' => 0,
+                    'high_churn_customers' => 0,
+                    'active_shifts' => 0,
+                    'queued_price_updates' => 0,
+                    'latest_forecast' => null,
+                ],
+            ]);
+        }
+
         $grossRevenue = DB::table('woo_orders')
             ->whereIn('store_id', $storeIds)
             ->where('woo_created_at', '>=', $since)

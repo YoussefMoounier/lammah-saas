@@ -8,5 +8,6 @@ return [
         'page_size' => env('LAMMAH_WOO_PAGE_SIZE', 100),
         'max_pages_per_job' => env('LAMMAH_WOO_MAX_PAGES_PER_JOB', 25),
         'webhook_skew_seconds' => env('LAMMAH_WOO_WEBHOOK_SKEW_SECONDS', 300),
+        'queue' => env('LAMMAH_WOO_QUEUE', 'default'),
     ],
 ];

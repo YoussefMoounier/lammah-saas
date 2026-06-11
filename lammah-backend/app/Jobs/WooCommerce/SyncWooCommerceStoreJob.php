@@ -25,7 +25,7 @@ class SyncWooCommerceStoreJob implements ShouldQueue
         public readonly string $storeId,
         public readonly ?array $resources = null,
     ) {
-        $this->onQueue('woocommerce-sync');
+        $this->onQueue((string) config('lammah.woocommerce.queue', 'default'));
     }
 
     public function handle(WooCommerceSyncService $syncService): void

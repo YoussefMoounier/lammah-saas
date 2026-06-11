@@ -107,6 +107,7 @@ export function DashboardExperience() {
   async function loadStoreData(settings = connection) {
     if (!hasSelectedStore(settings)) return
 
+    setStatus('جاري تحميل بيانات المتجر والتحليلات...')
     const context = toApiContext(settings)
     const [summaryResponse, forecastResponse, fraudResponse, rfmResponse, profitResponse, priceResponse, shiftResponse] = await Promise.allSettled([
       lammahApi.dashboard(settings.merchantId, settings.storeId, context),
@@ -160,7 +161,7 @@ export function DashboardExperience() {
     }
 
     setLiveMode(true)
-    setStatus(errors.length ? `تم الاتصال، لكن يحتاج إصلاح: ${errors[0]}` : 'متصل وجاهز')
+    setStatus(errors.length ? `تم فتح المتجر. بعض البيانات لم تُحدّث بعد: ${errors[0]}` : 'تم تحديث بيانات المتجر')
   }
 
   function clearStoreData() {
@@ -201,7 +202,7 @@ export function DashboardExperience() {
     setConnection(normalized)
     saveConnectionSettings(normalized)
     setActiveSection('overview')
-    setStatus('جاري فتح المتجر')
+    setStatus('تم اختيار المتجر. جاري تحميل آخر بيانات متاحة...')
     void loadStoreData(normalized).catch((error) => setStatus(readableError(error)))
   }
 

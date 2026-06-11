@@ -120,6 +120,7 @@ export const lammahApi = {
     apiFetch<ApiEnvelope<DashboardSummary>>(`/merchants/${merchantId}/dashboard/summary`, {
       token: context.token,
       baseUrl: context.apiBaseUrl,
+      timeoutMs: 30000,
       query: { store_id: storeId, days: 30 }
     }),
 
@@ -127,6 +128,7 @@ export const lammahApi = {
     apiFetch<ApiEnvelope<WooCommerceStore[]>>(`/merchants/${merchantId}/stores`, {
       token: context.token,
       baseUrl: context.apiBaseUrl,
+      timeoutMs: 12000,
       query: { per_page: 50 }
     }),
 
@@ -135,6 +137,7 @@ export const lammahApi = {
       token: context.token,
       baseUrl: context.apiBaseUrl,
       method: 'POST',
+      timeoutMs: 12000,
       body: payload
     }),
 
