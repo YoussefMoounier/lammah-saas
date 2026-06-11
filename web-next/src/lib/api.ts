@@ -68,15 +68,21 @@ async function apiFetch<T>(path: string, options: RequestOptions): Promise<T> {
     if (value !== undefined && value !== '') url.searchParams.set(key, String(value))
   })
 
-  const response = await fetch(url, {
-    method: options.method ?? 'GET',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${options.token}`
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  })
+  let response: Response
+
+  try {
+    response = await fetch(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${options.token}`
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    })
+  } catch {
+    throw new Error(`تعذر الوصول إلى ${url.origin}. تأكد من رابط Railway وإعدادات CORS ثم أعد النشر.`)
+  }
 
   if (!response.ok) {
     const errorBody = await response.text()

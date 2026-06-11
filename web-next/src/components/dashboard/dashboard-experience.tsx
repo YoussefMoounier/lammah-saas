@@ -108,7 +108,7 @@ export function DashboardExperience() {
     if (!hasSelectedStore(settings)) return
 
     const context = toApiContext(settings)
-    const [summaryResponse, forecastResponse, fraudResponse, rfmResponse, profitResponse, priceResponse, shiftResponse] = await Promise.all([
+    const [summaryResponse, forecastResponse, fraudResponse, rfmResponse, profitResponse, priceResponse, shiftResponse] = await Promise.allSettled([
       lammahApi.dashboard(settings.merchantId, settings.storeId, context),
       lammahApi.forecasts(settings.merchantId, settings.storeId, context),
       lammahApi.fraudSignals(settings.merchantId, settings.storeId, context),
@@ -118,15 +118,49 @@ export function DashboardExperience() {
       lammahApi.shifts(settings.merchantId, context)
     ])
 
-    setSummary(summaryResponse.data)
-    setForecasts(forecastResponse.data)
-    setFraud(fraudResponse.data)
-    setRfm(rfmResponse.data)
-    setProfits(profitResponse.data)
-    setPriceUpdates(priceResponse.data)
-    setShifts(shiftResponse.data)
+    const errors: string[] = []
+
+    if (summaryResponse.status === 'fulfilled') setSummary(summaryResponse.value.data)
+    else errors.push(`ملخص المبيعات: ${readableError(summaryResponse.reason)}`)
+
+    if (forecastResponse.status === 'fulfilled') setForecasts(forecastResponse.value.data)
+    else {
+      setForecasts([])
+      errors.push(`توقعات المبيعات: ${readableError(forecastResponse.reason)}`)
+    }
+
+    if (fraudResponse.status === 'fulfilled') setFraud(fraudResponse.value.data)
+    else {
+      setFraud([])
+      errors.push(`تنبيهات الاحتيال: ${readableError(fraudResponse.reason)}`)
+    }
+
+    if (rfmResponse.status === 'fulfilled') setRfm(rfmResponse.value.data)
+    else {
+      setRfm([])
+      errors.push(`شرائح العملاء: ${readableError(rfmResponse.reason)}`)
+    }
+
+    if (profitResponse.status === 'fulfilled') setProfits(profitResponse.value.data)
+    else {
+      setProfits([])
+      errors.push(`صافي الربح: ${readableError(profitResponse.reason)}`)
+    }
+
+    if (priceResponse.status === 'fulfilled') setPriceUpdates(priceResponse.value.data)
+    else {
+      setPriceUpdates([])
+      errors.push(`تحديثات الأسعار: ${readableError(priceResponse.reason)}`)
+    }
+
+    if (shiftResponse.status === 'fulfilled') setShifts(shiftResponse.value.data)
+    else {
+      setShifts([])
+      errors.push(`الشفتات: ${readableError(shiftResponse.reason)}`)
+    }
+
     setLiveMode(true)
-    setStatus('متصل وجاهز')
+    setStatus(errors.length ? `تم الاتصال، لكن يحتاج إصلاح: ${errors[0]}` : 'متصل وجاهز')
   }
 
   function clearStoreData() {
