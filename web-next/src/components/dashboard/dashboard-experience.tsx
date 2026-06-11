@@ -211,7 +211,11 @@ export function DashboardExperience() {
     try {
       await lammahApi.syncStore(normalized.merchantId, storeId, toApiContext(normalized))
       setStatus('تم إرسال المزامنة للخلفية. انتظر دقيقة ثم اضغط تحديث')
-      await loadWorkspace(normalized)
+      try {
+        await loadStoreData(normalized)
+      } catch (reloadError) {
+        setStatus(`تم إرسال المزامنة، لكن تحديث العرض فشل: ${readableError(reloadError)}`)
+      }
     } catch (error) {
       setStatus(readableError(error))
     } finally {
@@ -261,7 +265,11 @@ export function DashboardExperience() {
     try {
       await action(connection)
       setStatus(label)
-      await loadWorkspace(connection)
+      try {
+        await loadStoreData(connection)
+      } catch (reloadError) {
+        setStatus(`${label}. لكن تحديث العرض فشل: ${readableError(reloadError)}`)
+      }
     } catch (error) {
       setStatus(readableError(error))
     } finally {
@@ -273,7 +281,7 @@ export function DashboardExperience() {
     <AppShell activeSection={activeSection} liveMode={liveMode} onSectionChange={setActiveSection}>
       <ConnectionPanel busy={busy} connection={connection} status={status} onChange={updateConnection} onConnect={saveAndConnect} onRefresh={() => void loadWorkspace(connection)} />
 
-      <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="dashboard-grid mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="إجمالي المبيعات" value={formatMoney(summary.gross_revenue)} detail="من طلبات WooCommerce المتزامنة" tone="teal" icon={CircleDollarSign} />
         <MetricTile label="صافي الربح" value={formatMoney(summary.net_profit)} detail="بعد التكلفة والرسوم" tone="sky" icon={ChartNoAxesCombined} />
         <MetricTile label="تنبيهات الاحتيال" value={String(summary.open_fraud_signals)} detail="حسابات تجريبية أو نشاط مشبوه" tone="rose" icon={ShieldAlert} />
@@ -281,15 +289,15 @@ export function DashboardExperience() {
       </section>
 
       {activeSection === 'overview' && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
-          <div className="grid gap-4">
+        <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+          <div className="min-w-0 grid gap-4">
             {!selectedStore && <EmptyStorePrompt onClick={() => setActiveSection('stores')} />}
             <StoreSummaryCard store={selectedStore} onSync={() => runAction((settings) => lammahApi.syncStore(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم إرسال المزامنة للخلفية')} />
             <ForecastsPanel forecasts={forecasts} />
             <ProfitsPanel profits={profits} />
           </div>
 
-          <div className="grid content-start gap-4">
+          <div className="min-w-0 grid content-start gap-4">
             <CommandPanel
               busy={busy}
               onForecast={() => runAction((settings) => lammahApi.generateForecast(settings.merchantId, settings.storeId, toApiContext(settings)), 'تم طلب التوقعات')}
@@ -305,7 +313,7 @@ export function DashboardExperience() {
       )}
 
       {activeSection === 'stores' && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,420px)]">
           <StoreList stores={stores} selectedStoreId={connection.storeId} busy={busy} onSelect={selectStore} onSync={syncStore} />
           <StoreFormPanel busy={busy} form={storeForm} result={connectionResult} onChange={updateStoreForm} onSubmit={addStore} />
         </section>
@@ -314,7 +322,7 @@ export function DashboardExperience() {
       {activeSection === 'fraud' && <FraudPanel fraud={fraud} busy={busy} liveMode={liveMode} onReview={(signalId) => runAction((settings) => lammahApi.updateFraudSignal(settings.merchantId, signalId, 'reviewing', toApiContext(settings)), 'تم وضع التنبيه قيد المراجعة')} />}
 
       {activeSection === 'pricing' && (
-        <section className="mt-4 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <section className="dashboard-grid mt-4 grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
           <PricingActions busy={busy} onPriceLift={(percent) => runAction((settings) => lammahApi.createPriceUpdate(settings.merchantId, settings.storeId, toApiContext(settings), percent), `تم طلب زيادة ${percent}%`)} />
           <PriceUpdatesPanel priceUpdates={priceUpdates} />
         </section>
@@ -335,33 +343,45 @@ type ConnectionPanelProps = {
 }
 
 function ConnectionPanel({ busy, connection, status, onChange, onConnect, onRefresh }: ConnectionPanelProps) {
+  const isConfigured = hasMerchantConnection(connection)
+
   return (
-    <section className="glass-panel grid gap-3 rounded-md p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">إعداد الاتصال الأساسي</h2>
-          <p className="mt-1 text-sm text-slate-400">هذه بيانات صاحب الحساب، والعميل لا يحتاج رؤيتها لاحقًا بعد تفعيل تسجيل الدخول.</p>
+    <section className="glass-panel grid gap-4 rounded-md p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">{isConfigured ? 'حالة حساب العميل' : 'تجهيز حساب العميل'}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            {isConfigured ? 'الربط التقني محفوظ. العميل يرى المتاجر والتحليلات فقط، وإعدادات المطور مخفية هنا عند الحاجة.' : 'أدخل بيانات الحساب مرة واحدة فقط. بعد تسجيل الدخول لاحقًا لن يحتاج العميل رؤية هذه البيانات.'}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button className="h-10 rounded-md border border-teal-300/25 bg-teal-300/10 px-4 text-sm text-teal-100 disabled:opacity-50" disabled={busy} onClick={onConnect}>
-            اتصال
+        <div className="flex shrink-0 gap-2">
+          <button className="h-10 rounded-md border border-teal-300/25 bg-teal-300/10 px-4 text-sm text-teal-100 disabled:opacity-50" disabled={busy} onClick={isConfigured ? onRefresh : onConnect}>
+            {isConfigured ? 'تحديث' : 'اتصال'}
           </button>
-          <button className="grid h-10 w-11 place-items-center rounded-md border border-white/10 bg-white/5 text-slate-300 disabled:opacity-50" disabled={busy} onClick={onRefresh} title="تحديث">
-            <RefreshCcw className="size-4" />
-          </button>
+          {isConfigured && (
+            <button className="grid h-10 w-11 place-items-center rounded-md border border-white/10 bg-white/5 text-slate-300 disabled:opacity-50" disabled={busy} onClick={onRefresh} title="تحديث">
+              <RefreshCcw className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr]">
-        <LabeledInput label="رابط API على Railway" value={connection.apiBaseUrl} onChange={(value) => onChange('apiBaseUrl', value)} placeholder="https://your-api.up.railway.app" />
-        <LabeledInput label="توكن Sanctum" type="password" value={connection.token} onChange={(value) => onChange('token', value)} placeholder="01...|..." />
-        <LabeledInput label="معرف التاجر" value={connection.merchantId} onChange={(value) => onChange('merchantId', value)} placeholder="Merchant ULID" />
+      <div className="flex min-w-0 items-start gap-2 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+        <Activity className="mt-0.5 size-4 shrink-0 text-teal-200" />
+        <span className="min-w-0 break-words">{status}</span>
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-slate-400">
-        <Activity className="size-4 text-teal-200" />
-        <span className="break-words">{status}</span>
-      </div>
+      <details className="group rounded-md border border-white/10 bg-black/10 p-3">
+        <summary className="cursor-pointer select-none text-sm font-medium text-slate-300 group-open:text-white">إعدادات المطور</summary>
+        <div className="dashboard-grid mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <LabeledInput label="رابط API على Railway" value={connection.apiBaseUrl} onChange={(value) => onChange('apiBaseUrl', value)} placeholder="https://your-api.up.railway.app" />
+          <LabeledInput label="توكن Sanctum" type="password" value={connection.token} onChange={(value) => onChange('token', value)} placeholder="01...|..." />
+          <LabeledInput label="معرف التاجر" value={connection.merchantId} onChange={(value) => onChange('merchantId', value)} placeholder="Merchant ULID" />
+          <button className="h-12 rounded-md border border-teal-300/25 bg-teal-300/10 px-4 text-sm text-teal-100 disabled:opacity-50 md:col-span-2 xl:col-span-3" disabled={busy} onClick={onConnect}>
+            حفظ إعدادات الاتصال
+          </button>
+        </div>
+      </details>
     </section>
   )
 }
@@ -442,7 +462,7 @@ function StoreList({ stores, selectedStoreId, busy, onSelect, onSync }: { stores
             {store.last_error && <p className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/10 p-2 text-xs text-rose-100">{store.last_error}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="rounded-md border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-sm text-teal-100" onClick={() => onSelect(store.id)}>
-                فتح المتجر
+                اختيار المتجر
               </button>
               <button className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 disabled:opacity-50" disabled={busy} onClick={() => onSync(store.id)}>
                 مزامنة الآن

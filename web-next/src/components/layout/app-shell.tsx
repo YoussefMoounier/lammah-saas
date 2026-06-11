@@ -23,7 +23,7 @@ type AppShellProps = {
 
 export function AppShell({ activeSection, children, liveMode, onSectionChange }: AppShellProps) {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#07090d] text-slate-100">
+    <main className="min-h-screen w-full overflow-x-hidden bg-[#07090d] text-slate-100">
       <div className="neon-line h-1 w-full" />
       <aside className="fixed right-0 top-1 hidden h-[calc(100vh-4px)] w-72 border-l border-white/10 bg-[#090d13]/95 px-4 py-5 lg:block">
         <div className="flex items-center gap-3 px-2">
@@ -65,7 +65,7 @@ export function AppShell({ activeSection, children, liveMode, onSectionChange }:
         </div>
       </aside>
 
-      <section className="lg:pr-72">
+      <section className="min-w-0 lg:pr-72">
         <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-white/10 bg-[#07090d]/88 px-4 py-3 backdrop-blur md:px-6">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-teal-200">إدارة WooCommerce و IPTV</p>
@@ -82,7 +82,7 @@ export function AppShell({ activeSection, children, liveMode, onSectionChange }:
           </div>
         </header>
 
-        <div className="mx-auto w-full max-w-[1600px] px-4 pb-24 pt-5 md:px-6 lg:pb-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] overflow-x-hidden px-4 pb-24 pt-5 md:px-6 lg:pb-8">{children}</div>
       </section>
 
       <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-white/10 bg-[#090d13]/95 px-1 py-2 backdrop-blur lg:hidden">
